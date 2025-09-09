@@ -31,3 +31,8 @@ class Settings(BaseSettings):
     )
 
 settings = Settings()
+
+# normalize DATABASE_URL coming from env (Render gives postgres://…)
+settings.DATABASE_URL = _normalize_db_url(
+    os.getenv("DATABASE_URL", settings.DATABASE_URL)
+)
