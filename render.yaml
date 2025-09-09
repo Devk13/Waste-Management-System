@@ -1,47 +1,50 @@
+# render.yaml (put at repo root)
+
 services:
-  # ------------------------------
-  # Backend (FastAPI)
-  # ------------------------------
+  # --------------------------
+  # Backend (FastAPI + Postgres)
+  # --------------------------
   - type: web
     name: wmis-backend
     env: python
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: ./scripts/migrate_then_start.sh
+    startCommand: bash scripts/migrate_then_start.sh
     envVars:
-      # Renders DB URL into the backend service
+      # Render injects the DB connection string
       - key: DATABASE_URL
         fromDatabase:
           name: wmis-db
           property: connectionString
 
-      # Random secret for JWTs
+      # random JWT secret (Render will generate a value)
       - key: JWT_SECRET
         generateValue: true
 
-      # CORS must point to your FRONTEND URL once it's live
+      # IMPORTANT: point CORS to your frontend once it’s live (update after first deploy if the name differs)
       - key: CORS_ORIGINS
-        value: https://wmis-frontend.onrender.com  # update after first deploy if the name differs
+        value: https://wmis-frontend.onrender.com
 
-      # Optional: where your QR codes link to (set to whatever you want)
+      # Optional: where QR links should point (you can change later)
       - key: DRIVER_QR_BASE_URL
         value: https://example.com
 
     autoDeploy: true
 
-  # ------------------------------
+  # --------------------------
   # Frontend (Vite static site)
-  # ------------------------------
-  - type: static_site
+  # --------------------------
+  - type: static
     name: wmis-frontend
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
-      # The API base URL that your frontend calls
+      # Frontend needs to know the API base.
+      # After the backend deploys, copy its URL here (e.g. https://wmis-backend.onrender.com)
       - key: VITE_API_URL
-        value: https://wmis-backend.onrender.com  # Render will assign the real URL; update after first deploy
+        value: https://wmis-backend.onrender.com
 
 databases:
   - name: wmis-db
