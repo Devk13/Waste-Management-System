@@ -1,48 +1,30 @@
 # render.yaml (repo root)
-
 services:
-  # ------------------------------
-  # Backend (FastAPI + Postgres)
-  # ------------------------------
   - type: web
     name: wmis-backend
     env: python
-    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: bash scripts/migrate_then_start.sh
     envVars:
-      # Render injects the DB connection string
       - key: DATABASE_URL
         fromDatabase:
           name: wmis-db
           property: connectionString
-
-      # Random JWT secret (Render will generate one)
       - key: JWT_SECRET
         generateValue: true
-
-      # IMPORTANT: set this to your frontend URL after it’s live
       - key: CORS_ORIGINS
         value: https://wmis-frontend.onrender.com
-
-      # Optional: where your QR codes link to
       - key: DRIVER_QR_BASE_URL
         value: https://example.com
-
     autoDeploy: true
 
-  # ------------------------------
-  # Frontend (Vite static site)
-  # ------------------------------
-  - type: static_site
+  - type: static_site          # ← this is the correct value
     name: wmis-frontend
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
-      # FRONTEND needs to know the API base. After backend deploys,
-      # update this value to your backend URL (https://wmis-backend.onrender.com)
       - key: VITE_API_URL
         value: https://wmis-backend.onrender.com
 
