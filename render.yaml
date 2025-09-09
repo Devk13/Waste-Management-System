@@ -1,9 +1,9 @@
-# render.yaml (put at repo root)
+# render.yaml  (put at the repo root)
 
 services:
-  # --------------------------
+  # ───────────────────────────
   # Backend (FastAPI + Postgres)
-  # --------------------------
+  # ───────────────────────────
   - type: web
     name: wmis-backend
     env: python
@@ -18,31 +18,32 @@ services:
           name: wmis-db
           property: connectionString
 
-      # random JWT secret (Render will generate a value)
+      # Random secret for JWTs (Render will generate a secret value)
       - key: JWT_SECRET
         generateValue: true
 
-      # IMPORTANT: point CORS to your frontend once it’s live (update after first deploy if the name differs)
+      # IMPORTANT: after the frontend is live, replace this with the actual
+      # onrender.com URL shown on the frontend service (https://…onrender.com)
       - key: CORS_ORIGINS
         value: https://wmis-frontend.onrender.com
 
-      # Optional: where QR links should point (you can change later)
+      # Where your QR links should point (you can change later)
       - key: DRIVER_QR_BASE_URL
         value: https://example.com
 
     autoDeploy: true
 
-  # --------------------------
+  # ───────────────────────────
   # Frontend (Vite static site)
-  # --------------------------
-  - type: static
+  # ───────────────────────────
+  - type: static_site          # ← NOTE: must be static_site (not static)
     name: wmis-frontend
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
-      # Frontend needs to know the API base.
-      # After the backend deploys, copy its URL here (e.g. https://wmis-backend.onrender.com)
+      # After backend deploy, copy the backend’s public URL (https://…onrender.com)
+      # and paste it here so the built app calls the live API
       - key: VITE_API_URL
         value: https://wmis-backend.onrender.com
 
