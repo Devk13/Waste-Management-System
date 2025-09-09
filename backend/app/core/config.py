@@ -1,20 +1,20 @@
-# path: backend/app/core/config.py
 from __future__ import annotations
-
-import os
-from typing import Optional
-from pydantic import BaseSettings, AnyHttpUrl
-
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    DATABASE_URL: str
-    JWT_SECRET: str
-    CORS_ORIGINS: str = "*"  # comma-separated allowed origins or "*"
-    DRIVER_QR_BASE_URL: Optional[AnyHttpUrl] = None  # e.g. https://driver.example.com
+    DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
+    JWT_SECRET: str = "dev"
+    DRIVER_QR_BASE_URL: str = "http://localhost:5173"
+    CORS_ORIGINS: str = "*"
 
-    class Config:
-        env_file = ".env"
+    DEBUG_FAKE_ROLE: str | None = None       # e.g. "admin" or "driver"
+    DEBUG_FAKE_USER_ID: str | None = None    # UUID string; optional
 
+    # why: pydantic v2 uses SettingsConfigDict instead of inner Config
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-# Allow overriding env file via ENV_FILE if needed
-settings = Settings(_env_file=os.getenv("ENV_FILE", ".env"))
+settings = Settings()
