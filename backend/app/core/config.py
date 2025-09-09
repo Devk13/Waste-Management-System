@@ -1,6 +1,19 @@
 from __future__ import annotations
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# app/core/config.py
+import os  # keep if you already have it
+
+def _normalize_db_url(url: str) -> str:
+    # Convert Render-style "postgres://..." to async SQLAlchemy URL
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
+    # Ensure sslmode=require is present for Render’s managed Postgres
+    if "sslmode=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}sslmode=require"
+    return url
+
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     JWT_SECRET: str = "dev"

@@ -1,4 +1,7 @@
 services:
+  # ------------------------------
+  # Backend (FastAPI)
+  # ------------------------------
   - type: web
     name: wmis-backend
     env: python
@@ -7,26 +10,38 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: ./scripts/migrate_then_start.sh
     envVars:
+      # Renders DB URL into the backend service
       - key: DATABASE_URL
         fromDatabase:
           name: wmis-db
           property: connectionString
+
+      # Random secret for JWTs
       - key: JWT_SECRET
         generateValue: true
+
+      # CORS must point to your FRONTEND URL once it's live
       - key: CORS_ORIGINS
-        value: https://wmis-frontend.onrender.com   # update after first deploy if name differs
+        value: https://wmis-frontend.onrender.com  # update after first deploy if the name differs
+
+      # Optional: where your QR codes link to (set to whatever you want)
       - key: DRIVER_QR_BASE_URL
         value: https://example.com
+
     autoDeploy: true
 
-  - type: static
+  # ------------------------------
+  # Frontend (Vite static site)
+  # ------------------------------
+  - type: static_site
     name: wmis-frontend
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
+      # The API base URL that your frontend calls
       - key: VITE_API_URL
-        value: https://wmis-backend.onrender.com   # Render will assign real URL; update after first deploy
+        value: https://wmis-backend.onrender.com  # Render will assign the real URL; update after first deploy
 
 databases:
   - name: wmis-db
