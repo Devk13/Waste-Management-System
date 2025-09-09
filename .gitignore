@@ -1,0 +1,22 @@
+# Python
+backend/.venv/
+**/__pycache__/
+*.pyc
+backend/.env
+backend/dev.db
+
+# Alembic caches (keep migration scripts)
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.coverage
+backend/htmlcov/
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Editors / OS
+.vscode/
+.DS_Store
+Thumbs.db
