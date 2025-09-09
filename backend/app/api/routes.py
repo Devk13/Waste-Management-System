@@ -1,33 +1,33 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# path: backend/app/api/routes.py  (REPLACE or MERGE)
-# Ensures the /skips endpoints are registered.
-# ─────────────────────────────────────────────────────────────────────────────
+# path: backend/app/api/routes.py
+
 from fastapi import APIRouter
 
-# Keep your other routers if you have them
+# Always required for labels
+from app.api import skips as skips_api
+
+# Optional: only if these modules exist in your project
 try:
-    from app.api import driver as driver_api  # optional
-except Exception:  # pragma: no cover
-    driver_api = None
+    from app.api import driver as driver_api
+except Exception:
+    driver_api = None  # pragma: no cover
 
 try:
-    from app.api import dispatch as dispatch_api  # optional
-except Exception:  # pragma: no cover
-    dispatch_api = None
+    from app.api import dispatch as dispatch_api
+except Exception:
+    dispatch_api = None  # pragma: no cover
 
 try:
-    from app.api import drivers as drivers_me_api  # optional (/drivers/me)
-except Exception:  # pragma: no cover
-    drivers_me_api = None
+    from app.api import drivers as drivers_me_api  # /drivers/me
+except Exception:
+    drivers_me_api = None  # pragma: no cover
 
-from app.api import skips as skips_api  # <-- REQUIRED for /skips
 
 router = APIRouter()
 
 # Required
 router.include_router(skips_api.router)
 
-# Optional (only if present in your project)
+# Optional
 if driver_api:
     router.include_router(driver_api.router)
 if dispatch_api:

@@ -4,5 +4,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 from .skip import Skip, SkipStatus
 from .labels import SkipAsset, SkipAssetKind
+from .driver import DriverProfile, DriverAssignment  # noqa: F401
 
 __all__ = ["Skip", "SkipStatus", "SkipAsset", "SkipAssetKind"]

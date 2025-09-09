@@ -89,3 +89,21 @@ export async function downloadLabelsPdf(skip_id: string): Promise<Blob> {
   const { data } = await client().get(`/skips/${encodeURIComponent(skip_id)}/labels.pdf`, { responseType: 'blob' })
   return data as Blob
 }
+
+export type DriverMe = {
+  user_id: string;
+  status: "available" | "busy" | "inactive";
+  updated_at: string;
+  open_assignment: null | {
+    id: string;
+    status: string;
+    skip_id: string;
+    skip_qr_code?: string | null;
+  };
+};
+
+export async function getDriverMe(): Promise<DriverMe> {
+  const res = await fetch(`${import.meta.env.VITE_API_URL}/drivers/me`);
+  if (!res.ok) throw new Error(`drivers/me ${res.status}`);
+  return res.json();
+}
