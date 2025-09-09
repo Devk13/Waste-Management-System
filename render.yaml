@@ -1,12 +1,11 @@
 services:
-  # --- BACKEND (FastAPI) ---
   - type: web
     name: wmis-backend
     env: python
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: bash scripts/migrate_then_start.sh
+    startCommand: ./scripts/migrate_then_start.sh
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -15,19 +14,19 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://wmis-frontend.onrender.com   # update after first deploy
+        value: https://wmis-frontend.onrender.com   # update after first deploy if name differs
       - key: DRIVER_QR_BASE_URL
-        value: https://wmis-frontend.onrender.com   # update after first deploy
+        value: https://example.com
+    autoDeploy: true
 
-  # --- FRONTEND (Vite static site) ---
   - type: static
     name: wmis-frontend
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
-      - key: VITE_API_BASE_URL
-        value: https://wmis-backend.onrender.com     # update after first deploy
+      - key: VITE_API_URL
+        value: https://wmis-backend.onrender.com   # Render will assign real URL; update after first deploy
 
 databases:
   - name: wmis-db
