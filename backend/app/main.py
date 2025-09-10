@@ -2,6 +2,9 @@
 from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+# use both Bases so both sets of tables get created
+from app.models.skip import Base as SkipBase
+from app.models.labels import Base as LabelsBase
 
 # NEW: imports for DB bootstrap
 from sqlalchemy import text
