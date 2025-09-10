@@ -1,41 +1,41 @@
-# app/core/config.py
-from __future__ import annotations
+# app/core/config.py (replace the normalizer with this)
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-def _normalize_db_url(url: str | None) -> str:
-    """
-    Render can inject:
-      - postgres://USER:PASS@HOST/DB
-      - postgresql://USER:PASS@HOST/DB
-    SQLAlchemy async wants:
-      - postgresql+asyncpg://USER:PASS@HOST/DB?sslmode=require
-    """
+def _normalize_db_url(url: str | None) -> str | None:
     if not url:
-        return "sqlite+aiosqlite:///./dev.db"
+        return url
 
-    u = url.strip()
+    # 1) Render gives 'postgres://...' -> we need 'postgresql+asyncpg://...'
+    if url.startswith("postgres://"):
+        url = "postgresql+asyncpg://" + url[len("postgres://"):]
 
-    if u.startswith("postgres://"):
-        u = "postgresql+asyncpg://" + u[len("postgres://"):]
-    elif u.startswith("postgresql://"):
-        # convert only if not already async
-        if not u.startswith("postgresql+asyncpg://"):
-            u = "postgresql+asyncpg://" + u[len("postgresql://"):]
+    # 2) If it has sslmode, map to asyncpg's 'ssl=true'
+    parts = urlsplit(url)
+    q = dict(parse_qsl(parts.query, keep_blank_values=True))
+    if "sslmode" in q:
+        # drop sslmode and use asyncpg's 'ssl=true'
+        q.pop("sslmode", None)
+        q["ssl"] = "true"
+        url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
 
-    # ensure sslmode=require for Render-managed Postgres
-    if u.startswith("postgresql+asyncpg://") and "sslmode=" not in u:
-        sep = "&" if "?" in u else "?"
-        u = f"{u}{sep}sslmode=require"
+    # 3) If no SSL query param at all, enforce it
+    if "ssl=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}ssl=true"
 
-    return u
-
+    return url
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
     JWT_SECRET: str = "dev"
     DRIVER_QR_BASE_URL: str = "http://localhost:5173"
     CORS_ORIGINS: str = "*"
+
+    # optional debug helpers you added:
+    DEBUG_FAKE_ROLE: str | None = None
+    DEBUG_FAKE_USER_ID: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -45,5 +45,5 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# normalize DATABASE_URL coming from env (Render gives postgres:/postgresql:…)
-settings.DATABASE_URL = _normalize_db_url(os.getenv("DATABASE_URL") or settings.DATABASE_URL)
+# Normalize whatever is in env (or default)
+settings.DATABASE_URL = _normalize_db_url(os.getenv("DATABASE_URL", settings.DATABASE_URL))
