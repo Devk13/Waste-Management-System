@@ -1,21 +1,18 @@
+# path: backend/app/models/skip.py
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
-from sqlalchemy.orm import declarative_base
+
 from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, declarative_base
 
-# app/models/skip.py  (same idea for labels.py, driver.py, etc.)
+Base = declarative_base()  # <-- local Base for this module
 
-# This module's own Base so we can bootstrap it independently
-Base = declarative_base()
-
-if TYPE_CHECKING:  # only for type checkers; avoids import cycles at runtime
-    from .labels import SkipAsset
-
+if TYPE_CHECKING:
+    from .labels import SkipAsset  # only for type hints
 
 class SkipStatus(str, Enum):
     IN_STOCK = "in_stock"
@@ -23,16 +20,13 @@ class SkipStatus(str, Enum):
     IN_TRANSIT = "in_transit"
     PROCESSING = "processing"
 
-
 class Skip(Base):
     __tablename__ = "skips"
-
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     qr_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
-
-    owner_org_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    assigned_commodity_id: Mapped[str | None] = mapped_column(String(36), default=None)
-    zone_id: Mapped[str | None] = mapped_column(String(36), default=None)
+    owner_org_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assigned_commodity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    zone_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     status: Mapped[str] = mapped_column(String(32), default=SkipStatus.IN_STOCK.value, nullable=False)
 
