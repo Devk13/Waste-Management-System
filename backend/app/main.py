@@ -4,13 +4,16 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from app.db import engine
+from app.models import Base   # ← this imports __init__ and registers all tables
 
 # Make sure these import the models but don’t execute app logic
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
-from app.db import engine
 
 app = FastAPI(title="WMIS API")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
 
 # CORS
 try:

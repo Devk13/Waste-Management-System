@@ -7,12 +7,13 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column, relationship, declarative_base
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-Base = declarative_base()  # <-- local Base for this module
+from app.models.base import Base  # ← use the shared Base
 
 if TYPE_CHECKING:
     from .labels import SkipAsset  # only for type hints
+
 
 class SkipStatus(str, Enum):
     IN_STOCK = "in_stock"
@@ -20,8 +21,10 @@ class SkipStatus(str, Enum):
     IN_TRANSIT = "in_transit"
     PROCESSING = "processing"
 
+
 class Skip(Base):
     __tablename__ = "skips"
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     qr_code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     owner_org_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -38,5 +41,5 @@ class Skip(Base):
     updated_by_id: Mapped[str | None] = mapped_column(String(36), default=None)
 
     assets: Mapped[list["SkipAsset"]] = relationship(
-        "SkipAsset", back_populates="skip", cascade="all,delete-orphan"
+        "SkipAsset", back_populates="skip", cascade="all, delete-orphan"
     )
