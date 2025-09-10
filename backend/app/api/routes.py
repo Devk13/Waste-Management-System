@@ -1,24 +1,24 @@
-# app/api/routes.py
+# path: backend/app/api/routes.py
+from __future__ import annotations
 from fastapi import APIRouter
 
 router = APIRouter()
 
-def _try_include(modname: str) -> None:
+# REQUIRED: /skips (this one should always exist)
+from app.api import skips as skips_api  # type: ignore
+router.include_router(skips_api.router)
+
+# OPTIONAL: include these only if present
+_optional_modules = [
+    ("app.api.driver", "router"),     # your legacy /driver endpoints (if any)
+    ("app.api.dispatch", "router"),   # dispatch endpoints (if any)
+    ("app.api.drivers", "router"),    # the /drivers/me endpoint we added
+]
+
+for modpath, attr in _optional_modules:
     try:
-        mod = __import__(f"app.api.{modname}", fromlist=["router"])
-        r = getattr(mod, "router", None)
-        if r is None:
-            print(f"[routes] {modname}: no 'router' attr, skipping")
-            return
-        router.include_router(r)
-        print(f"[routes] mounted '{modname}'")
-    except Exception as e:
-        # Don't crash the whole app just because this module isn't ready.
-        print(f"[routes] skipping '{modname}': {e}")
-
-# Always try to mount /skips (you already have this working)
-_try_include("skips")
-
-# Optional modules — only mount if they import cleanly
-for name in ("driver", "dispatch", "drivers"):  # 'drivers' is your /drivers/me file
-    _try_include(name)
+        mod = __import__(modpath, fromlist=[attr])
+        router.include_router(getattr(mod, attr))
+    except Exception:
+        # Silently skip when module isn't present in this project
+        continue
