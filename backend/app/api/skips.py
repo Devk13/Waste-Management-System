@@ -94,7 +94,7 @@ async def create_skip(
                 kind=SkipAssetKind.label_png,
                 idx=i,
                 content_type="image/png",
-                bytes=png_bytes,
+                data=png_bytes,
             )
         )
 
@@ -104,7 +104,7 @@ async def create_skip(
             kind=SkipAssetKind.labels_pdf,
             idx=None,
             content_type="application/pdf",
-            bytes=pdf_bytes,
+            data=pdf_bytes,
         )
     )
 
@@ -139,7 +139,7 @@ async def get_skip_labels_pdf(
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Labels PDF not found")
 
-    return StreamingResponse(iter([asset.bytes]), media_type=asset.content_type)
+    return StreamingResponse(iter([asset.data]), media_type=asset.content_type)
 
 
 @router.get("/{skip_id}/labels/{idx}.png")
@@ -164,4 +164,4 @@ async def get_skip_label_png(
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Label PNG not found")
 
-    return StreamingResponse(iter([asset.bytes]), media_type=asset.content_type)
+    return StreamingResponse(iter([asset.data]), media_type=asset.content_type)
