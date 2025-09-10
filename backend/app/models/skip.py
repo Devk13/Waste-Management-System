@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from app.db import Base
 import uuid
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
-
+from sqlalchemy.orm import declarative_base
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 # app/models/skip.py  (same idea for labels.py, driver.py, etc.)
+
+# This module's own Base so we can bootstrap it independently
+Base = declarative_base()
 
 if TYPE_CHECKING:  # only for type checkers; avoids import cycles at runtime
     from .labels import SkipAsset

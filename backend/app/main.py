@@ -9,8 +9,6 @@ from app.models.labels import Base as LabelsBase
 # NEW: imports for DB bootstrap
 from sqlalchemy import text
 from app.db import engine
-# If your models define separate Base objects, import both:
-from app.models.labels import Base as LabelsBase
 
 # CORS origins (existing code)
 try:
