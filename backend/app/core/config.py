@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import TypedDict, Dict, List
 import os
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-from app.core.config import CORS_ORIGINS_LIST, SKIP_SIZES_LIST, SKIP_COLOR_MAP
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -171,15 +170,30 @@ def _parse_color_map(raw: str | None) -> dict[str, str]:
 # Normalize DATABASE_URL coming from env (Render gives postgres://…)
 settings.DATABASE_URL = _normalize_db_url(os.getenv("DATABASE_URL", settings.DATABASE_URL))
 
-# Handy parsed views (module-level constants)
+# ----- helpers (above usage) -----
+def _split(s: str | None) -> list[str]:
+    if not s:
+        return []
+    return [p.strip() for p in s.split(";") if p.strip()]
+
+def _parse_color_map(s: str | None) -> dict[str, str]:
+    if not s:
+        return {}
+    out: dict[str, str] = {}
+    for part in s.split(";"):
+        k, _, v = part.partition("=")
+        k, v = k.strip(), v.strip()
+        if k and v:
+            out[k] = v
+    return out
+
+# ----- build settings object -----
+settings = Settings()
+settings.DATABASE_URL = _normalize_db_url(
+    os.getenv("DATABASE_URL", settings.DATABASE_URL)
+)
+
+# ----- handy parsed exports (module-level, not attributes on `settings`) -----
 CORS_ORIGINS_LIST: list[str] = _split(settings.CORS_ORIGINS)
 SKIP_SIZES_LIST: list[str] = _split(settings.SKIP_SIZES)
 SKIP_COLOR_MAP: dict[str, str] = _parse_color_map(settings.SKIP_COLOR_MEANINGS)
-
-def _parse_color_map(s: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for part in _split(s):
-        k, _, v = part.partition("=")
-        if k and v:
-            out[k.strip()] = v.strip()
-    return out

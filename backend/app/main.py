@@ -7,7 +7,7 @@ from app.core.config import (
     SKIP_COLOR_SPEC,
     get_skip_size_presets,
 )
-
+from app.core.config import settings, CORS_ORIGINS_LIST
 from app.core.config import settings          # <— same import
 from app.db import engine
 from app.api import routes as api_routes      # <— you already have this
@@ -27,9 +27,15 @@ def meta_config():
         },
     }
 
-# --- CORS -----------------------------------------------------------------
-origins = settings.CORS_ORIGINS_LIST           # parsed list from config
-allow_credentials = settings.CORS_ALLOW_CREDENTIALS and origins != ["*"]
+# CORS
+ORIGINS = CORS_ORIGINS_LIST or ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(
     CORSMiddleware,
