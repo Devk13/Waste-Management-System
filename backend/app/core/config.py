@@ -2,13 +2,15 @@ from __future__ import annotations
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # app/core/config.py
-import os  # keep if you already have it
+import os
 
 def _normalize_db_url(url: str) -> str:
-    # Convert Render-style "postgres://..." to async SQLAlchemy URL
+    # Convert Render-style postgres URLs to async SQLAlchemy URL
     if url.startswith("postgres://"):
         url = "postgresql+asyncpg://" + url[len("postgres://"):]
-    # Ensure sslmode=require is present for Render’s managed Postgres
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    # Ensure sslmode=require for Render managed Postgres
     if "sslmode=" not in url:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}sslmode=require"
