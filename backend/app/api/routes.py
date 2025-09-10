@@ -1,39 +1,24 @@
-# path: backend/app/api/routes.py
-from app.api import driver as driver_api
-from app.api import dispatch as dispatch_api
-from app.api import drivers as drivers_me_api
-
+# app/api/routes.py
 from fastapi import APIRouter
-
-# Always required for labels
-from app.api import skips as skips_api
-
-# Optional: only if these modules exist in your project
-try:
-    from app.api import driver as driver_api
-except Exception:
-    driver_api = None  # pragma: no cover
-
-try:
-    from app.api import dispatch as dispatch_api
-except Exception:
-    dispatch_api = None  # pragma: no cover
-
-try:
-    from app.api import drivers as drivers_me_api  # /drivers/me
-except Exception:
-    drivers_me_api = None  # pragma: no cover
-
 
 router = APIRouter()
 
-# Required
-router.include_router(skips_api.router)
+def _try_include(modname: str) -> None:
+    try:
+        mod = __import__(f"app.api.{modname}", fromlist=["router"])
+        r = getattr(mod, "router", None)
+        if r is None:
+            print(f"[routes] {modname}: no 'router' attr, skipping")
+            return
+        router.include_router(r)
+        print(f"[routes] mounted '{modname}'")
+    except Exception as e:
+        # Don't crash the whole app just because this module isn't ready.
+        print(f"[routes] skipping '{modname}': {e}")
 
-# Optional
-if driver_api:
-    router.include_router(driver_api.router)
-if dispatch_api:
-    router.include_router(dispatch_api.router)
-if drivers_me_api:
-    router.include_router(drivers_me_api.router)
+# Always try to mount /skips (you already have this working)
+_try_include("skips")
+
+# Optional modules — only mount if they import cleanly
+for name in ("driver", "dispatch", "drivers"):  # 'drivers' is your /drivers/me file
+    _try_include(name)

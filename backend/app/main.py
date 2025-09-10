@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # use both Bases so both sets of tables get created
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
+from app.api.routes import router as api_router
 
 # NEW: imports for DB bootstrap
 from sqlalchemy import text
@@ -18,6 +19,8 @@ except Exception:  # pragma: no cover
     ORIGINS = ["*"]
 
 app = FastAPI(title="WMIS API")
+
+app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,14 +48,3 @@ async def debug_db():
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         ))).fetchall()
         return {"tables": [r[0] for r in rows]}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Include your routers (keep your existing includes)
-# ─────────────────────────────────────────────────────────────────────────────
-try:
-    from app.api.skips import router as skips_router
-    app.include_router(skips_router)
-except Exception:
-    pass
-
-# (…any other routers you include…)
