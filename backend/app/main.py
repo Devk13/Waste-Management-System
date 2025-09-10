@@ -3,23 +3,43 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from app.core.config import (
+    SKIP_COLOR_SPEC,
+    get_skip_size_presets,
+)
 
-from app.core.config import settings  # for CORS
+from app.core.config import settings          # <— same import
 from app.db import engine
+from app.api import routes as api_routes      # <— you already have this
 
 app = FastAPI(title="WMIS API")
 
-# CORS
-ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(";") if o.strip()] or ["*"]
+@app.get("/meta/config")
+def meta_config():
+    """
+    Small read-only shape for the frontend so it can render pickers and legends.
+    """
+    return {
+        "driver_qr_base_url": settings.DRIVER_QR_BASE_URL,
+        "skip": {
+            "sizes": get_skip_size_presets(),
+            "colors": SKIP_COLOR_SPEC,
+        },
+    }
+
+# --- CORS -----------------------------------------------------------------
+origins = settings.CORS_ORIGINS_LIST           # parsed list from config
+allow_credentials = settings.CORS_ALLOW_CREDENTIALS and origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ORIGINS,
-    allow_credentials=True,
+    allow_origins=origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# optional: tiny DB check
+# --- optional tiny DB check (keep if you like) ----------------------------
 @app.get("/__debug/db")
 async def debug_db():
     async with engine.begin() as conn:
@@ -28,6 +48,5 @@ async def debug_db():
         ))).fetchall()
     return {"tables": [r[0] for r in rows]}
 
-# 👉 Mount all API routes (do this AFTER app is created)
-from app.api import routes as api_routes  # noqa: E402
+# --- mount routes AFTER app is created -----------------------------------
 app.include_router(api_routes.router)
