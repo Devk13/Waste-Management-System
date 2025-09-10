@@ -1,4 +1,7 @@
 # path: backend/app/api/routes.py
+from app.api import driver as driver_api
+from app.api import dispatch as dispatch_api
+from app.api import drivers as drivers_me_api
 
 from fastapi import APIRouter
 
