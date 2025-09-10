@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.db import engine
 # If your models define separate Base objects, import both:
-from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
 
 # CORS origins (existing code)
