@@ -87,5 +87,43 @@ async def debug_db():
         rows = (await conn.execute(sql)).scalars().all()
         return {"tables": rows}
 
+from fastapi import HTTPException
+from sqlalchemy import text
+
+@app.get("/__debug/ping")
+async def debug_ping():
+    # simple DB connectivity check
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/__debug/tables")
+async def debug_tables():
+    # lists public tables in Postgres; falls back to SQLite if used locally
+    try:
+        async with engine.connect() as conn:
+            dialect = conn.engine.dialect.name  # 'postgresql' or 'sqlite'
+            if dialect.startswith("postgres"):
+                sql = text("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema='public'
+                    ORDER BY table_name
+                """)
+            else:
+                sql = text("""
+                    SELECT name AS table_name
+                    FROM sqlite_master
+                    WHERE type='table'
+                    ORDER BY name
+                """)
+            rows = (await conn.execute(sql)).scalars().all()
+        return {"dialect": dialect, "tables": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- mount routes AFTER app is created ----------------------------------------
 app.include_router(api_routes.router)
