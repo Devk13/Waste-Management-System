@@ -1,23 +1,34 @@
 # path: backend/app/main.py
 from __future__ import annotations
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+
 from app.core.config import (
+    settings,
+    CORS_ORIGINS_LIST,
     SKIP_COLOR_SPEC,
     get_skip_size_presets,
 )
-from app.core.config import settings, CORS_ORIGINS_LIST
-from app.core.config import settings          # <— same import
 from app.db import engine
-from app.api import routes as api_routes      # <— you already have this
+from app.api import routes as api_routes
+
 
 app = FastAPI(title="WMIS API")
 
+
+# --- health (simple 200) ------------------------------------------------------
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+# --- meta/config for the frontend --------------------------------------------
 @app.get("/meta/config")
 def meta_config():
     """
-    Small read-only shape for the frontend so it can render pickers and legends.
+    Small read-only config the frontend uses to render pickers and legends.
     """
     return {
         "driver_qr_base_url": settings.DRIVER_QR_BASE_URL,
@@ -27,25 +38,19 @@ def meta_config():
         },
     }
 
-# CORS
-ORIGINS = CORS_ORIGINS_LIST or ["*"]
+
+# --- CORS ---------------------------------------------------------------------
+origins = CORS_ORIGINS_LIST or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ORIGINS,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# --- optional tiny DB check (keep if you like) ----------------------------
+# --- optional tiny DB check (keep if you like) --------------------------------
 @app.get("/__debug/db")
 async def debug_db():
     async with engine.begin() as conn:
@@ -54,5 +59,6 @@ async def debug_db():
         ))).fetchall()
     return {"tables": [r[0] for r in rows]}
 
-# --- mount routes AFTER app is created -----------------------------------
+
+# --- mount routes AFTER app is created ----------------------------------------
 app.include_router(api_routes.router)
