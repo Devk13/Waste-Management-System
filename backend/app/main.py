@@ -60,21 +60,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# in backend/app/main.py
 from sqlalchemy import text
 
 @app.get("/__debug/db")
 async def debug_db():
     async with engine.begin() as conn:
-        # Pick a table listing query appropriate to the engine
-        if conn.engine.name.startswith("postgresql"):
-            q = text("select tablename from pg_catalog.pg_tables "
-                     "where schemaname not in ('pg_catalog','information_schema') "
-                     "order by tablename")
+        # Pick the right SQL for the active backend
+        if engine.url.get_backend_name().startswith("sqlite"):
+            sql = text(
+                "SELECT name AS table_name FROM sqlite_master "
+                "WHERE type = 'table' ORDER BY name"
+            )
         else:
-            q = text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        rows = (await conn.execute(q)).fetchall()
-        return {"tables": [r[0] for r in rows]}
+            # Postgres
+            sql = text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' ORDER BY table_name"
+            )
+
+        res = await conn.execute(sql)
+        tables = list(res.scalars().all())
+        return {"tables": tables}
 
 # --- mount routes AFTER app is created ----------------------------------------
 app.include_router(api_routes.router)
