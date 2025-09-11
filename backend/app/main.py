@@ -38,9 +38,20 @@ def meta_config():
         },
     }
 
+# --- CORS ---------------------------------------------------------------
+from app.core.config import settings, CORS_ORIGINS_LIST  # you already import these above
 
-# --- CORS ---------------------------------------------------------------------
-origins = CORS_ORIGINS_LIST or ["*"]
+# Build a clean list from env (config splits the string already)
+origins = [o for o in CORS_ORIGINS_LIST if o]
+
+if not origins:
+    # Fallback so we don't silently send no header (and avoid '*' with credentials)
+    origins = [
+        "https://waste-management-system-1-ie04.onrender.com",  # your frontend on Render
+        # "http://localhost:5173",  # uncomment if you want local dev later
+    ]
+    print("WARN: CORS_ORIGINS was empty; using fallback:", origins, flush=True)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -48,7 +59,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # --- optional tiny DB check (keep if you like) --------------------------------
 @app.get("/__debug/db")
