@@ -64,23 +64,26 @@ from sqlalchemy import text
 
 @app.get("/__debug/db")
 async def debug_db():
-    async with engine.begin() as conn:
-        # Pick the right SQL for the active backend
-        if engine.url.get_backend_name().startswith("sqlite"):
-            sql = text(
-                "SELECT name AS table_name FROM sqlite_master "
-                "WHERE type = 'table' ORDER BY name"
-            )
-        else:
-            # Postgres
-            sql = text(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'public' ORDER BY table_name"
-            )
+    # Use the already-imported async engine
+    dialect = engine.dialect.name  # e.g., "postgresql" or "sqlite"
 
+    if dialect.startswith("postgres"):
+        # List user-visible tables in the current schema (usually 'public')
+        sql = text("""
+            select table_name
+            from information_schema.tables
+            where table_schema = current_schema()
+            order by table_name
+        """)
+    else:
+        # SQLite (local dev)
+        sql = text("select name as table_name from sqlite_master where type='table' order by name")
+
+    async with engine.begin() as conn:
         res = await conn.execute(sql)
-        tables = list(res.scalars().all())
-        return {"tables": tables}
+        tables = [row[0] for row in res.fetchall()]
+
+    return {"dialect": dialect, "tables": tables}
 
 # --- mount routes AFTER app is created ----------------------------------------
 app.include_router(api_routes.router)
