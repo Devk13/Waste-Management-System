@@ -60,15 +60,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- optional tiny DB check (keep if you like) --------------------------------
+from sqlalchemy import text
+
 @app.get("/__debug/db")
 async def debug_db():
     async with engine.begin() as conn:
-        rows = (await conn.execute(text(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        ))).fetchall()
-    return {"tables": [r[0] for r in rows]}
+        # detect dialect (postgresql / sqlite)
+        dialect = getattr(conn, "dialect", None)
+        dialect_name = getattr(dialect, "name", "") if dialect else ""
 
+        if "postgres" in dialect_name:
+            sql = text("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """)
+        else:  # default to SQLite
+            sql = text("""
+                SELECT name AS table_name
+                FROM sqlite_master
+                WHERE type = 'table'
+                ORDER BY name
+            """)
+
+        rows = (await conn.execute(sql)).scalars().all()
+        return {"tables": rows}
 
 # --- mount routes AFTER app is created ----------------------------------------
 app.include_router(api_routes.router)
