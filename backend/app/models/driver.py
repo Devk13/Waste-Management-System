@@ -11,7 +11,6 @@ from sqlalchemy.orm import Mapped, mapped_column, declarative_base
 
 Base = declarative_base()  # <-- local Base for driver models only
 
-
 class DriverStatus(str, Enum):
     available = "available"
     busy = "busy"
