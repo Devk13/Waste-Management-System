@@ -13,58 +13,42 @@ from app.core.config import (
 )
 from app.db import engine
 from app.api import routes as api_routes
-
-from app.models.skip import Base as SkipBase                #one-time table creation
-from app.models.labels import Base as LabelsBase            #one-time table creation
+from app.models.skip import Base as SkipBase
+from app.models.labels import Base as LabelsBase
 
 app = FastAPI(title="WMIS API")
 
-
-# --- health (simple 200) ------------------------------------------------------
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-# --- meta/config for the frontend --------------------------------------------
-@app.get("/meta/config")
-def meta_config():
-    """
-    Small read-only config the frontend uses to render pickers and legends.
-    """
-    return {
-        "driver_qr_base_url": settings.DRIVER_QR_BASE_URL,
-        "skip": {
-            "sizes": get_skip_size_presets(),
-            "colors": SKIP_COLOR_SPEC,
-        },
-    }
-
-# --- CORS ---------------------------------------------------------------
-from app.core.config import settings, CORS_ORIGINS_LIST  # you already import these above
-
-# Build a clean list from env (config splits the string already)
-origins = [o for o in CORS_ORIGINS_LIST if o]
-
-if not origins:
-    # Fallback so we don't silently send no header (and avoid '*' with credentials)
-    origins = [
-        "https://waste-management-system-1-ie04.onrender.com",  # your frontend on Render
-        # "http://localhost:5173",  # uncomment if you want local dev later
-    ]
-    print("WARN: CORS_ORIGINS was empty; using fallback:", origins, flush=True)
-
+# ---------------------------------------------------------------------
+# CORS (single block)
+# ---------------------------------------------------------------------
+ORIGINS = CORS_ORIGINS_LIST or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-from sqlalchemy import text
+# ---------------------------------------------------------------------
+# Meta config for the frontend (skip sizes + color legend + driver QR base)
+# ---------------------------------------------------------------------
+@app.get("/meta/config")
+def meta_config():
+    """
+    Small read-only shape for the PWA so it can render pickers and legends.
+    """
+    return {
+        "driver_qr_base_url": settings.DRIVER_QR_BASE_URL,
+        "skip": {
+            "sizes": get_skip_size_presets(),  # {"sizes_m3":[...], "wheelie_l":[...], "rolloff_yd":[...]}
+            "colors": SKIP_COLOR_SPEC,         # {"white":{...}, "grey":{...}, ...}
+        },
+    }
 
-# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
+# ---------------------------------------------------------------------
+# Create tables once at startup (quick bootstrap; Alembic later)
+# ---------------------------------------------------------------------
 @app.on_event("startup")
 async def _bootstrap_db() -> None:
     # Only creates if missing; no-op if already present.
@@ -72,14 +56,16 @@ async def _bootstrap_db() -> None:
         await conn.run_sync(SkipBase.metadata.create_all)
         await conn.run_sync(LabelsBase.metadata.create_all)
 
-
+# ---------------------------------------------------------------------
+# Tiny DB check to verify connectivity/migrations (used during smoke tests)
+# ---------------------------------------------------------------------
 @app.get("/__debug/db")
 async def debug_db():
     # Use the already-imported async engine
     dialect = engine.dialect.name  # e.g., "postgresql" or "sqlite"
 
     if dialect.startswith("postgres"):
-        # List user-visible tables in the current schema (usually 'public')
+        # List user-visible tables in current schema (usually 'public')
         sql = text("""
             select table_name
             from information_schema.tables
@@ -96,5 +82,7 @@ async def debug_db():
 
     return {"dialect": dialect, "tables": tables}
 
-# --- mount routes AFTER app is created ----------------------------------------
+# ---------------------------------------------------------------------
+# Mount all API routes AFTER app is created
+# ---------------------------------------------------------------------
 app.include_router(api_routes.router)

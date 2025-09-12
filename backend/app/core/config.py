@@ -153,6 +153,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    ADMIN_API_KEY: str = "super-temp-seed-key"  # default for local; override on Render
+
 settings = Settings()
 # --- small helpers -------------------------------------------------
 def _split(raw: str | None) -> list[str]:

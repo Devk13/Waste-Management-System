@@ -4,6 +4,8 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
+from app.api import skips as skips_api
+router.include_router(skips_api.router)
 
 def _try_include(modpath: str, attr: str = "router") -> bool:
     """
@@ -26,10 +28,16 @@ def _try_include(modpath: str, attr: str = "router") -> bool:
 if not (_try_include("app.api.skips", "router") or _try_include("app.api.skips", "api_router")):
     print("[routes] WARNING: could not mount app.api.skips")
 
-# --- optional: only included if present/healthy ---
-for mod in (
-    "app.api.driver",    # legacy driver endpoints (if you still have them)
-    "app.api.dispatch",  # dispatch endpoints (if any)
-    "app.api.drivers",   # new /drivers/me endpoint (only if the module imports cleanly)
-):
-    _try_include(mod, "router")
+# optional modules
+_optional = [
+    ("app.api.driver", "router"),
+    ("app.api.dispatch", "router"),
+    ("app.api.drivers", "router"),
+]
+for modpath, attr in _optional:
+    try:
+        mod = __import__(modpath, fromlist=[attr])
+        router.include_router(getattr(mod, attr))
+    except Exception:
+        continue
+

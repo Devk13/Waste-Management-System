@@ -76,6 +76,7 @@ async def seed_skip(
 
 # --------------------------------------------------------------------------- endpoint
 
+# DEV seed payload (typed for clarity)
 class SeedIn(BaseModel):
     owner_org_id: str
     qr_code: str
@@ -83,26 +84,25 @@ class SeedIn(BaseModel):
     color: str | None = None
     notes: str | None = None
 
-@router.post("/_seed", status_code=201)
+@router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
     session: AsyncSession = Depends(get_session),
     x_api_key: str | None = Header(None, convert_underscores=False),
 ):
-    admin_key = os.getenv("super-temp-seed-key")
-    if not admin_key or x_api_key != admin_key:
+    # auth
+    from app.core.config import settings
+    if not x_api_key or x_api_key != settings.ADMIN_API_KEY:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
-    # upsert by qr_code for idempotency
+    # idempotent by qr_code
     existing = (
-        await session.execute(select(Skip).where(Skip.qr_code == body.qr_code))
+        await session.execute(select(m.Skip).where(m.Skip.qr_code == body.qr_code))
     ).scalar_one_or_none()
-
     if existing:
-        # already seeded, return 200 OK with existing id
         return {"id": str(existing.id), "qr_code": existing.qr_code}
 
-    s = Skip(
+    s = m.Skip(
         owner_org_id=body.owner_org_id,
         qr_code=body.qr_code,
         size=body.size,
@@ -112,6 +112,7 @@ async def seed_skip(
     session.add(s)
     await session.flush()
     return {"id": str(s.id), "qr_code": s.qr_code}
+
 
 def _qr_deeplink(code: str) -> str:
     base = settings.DRIVER_QR_BASE_URL
