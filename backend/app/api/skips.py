@@ -1,7 +1,7 @@
 from __future__ import annotations
 import uuid
 from typing import Any, Optional
-
+import os
 from fastapi import APIRouter                                               #delete
 from fastapi import APIRouter, Depends, Header, HTTPException, status       #delete
 from pydantic import BaseModel                                              #delete
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession                             #del
 from app.core.config import settings                                        #delete
 from app.db import get_session                                              #delete
 from app.models import models as m                                          #delete
+from app.models.models import Skip
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -74,6 +75,43 @@ async def seed_skip(
     return {"id": str(new_skip.id), "created": True}
 
 # --------------------------------------------------------------------------- endpoint
+
+class SeedIn(BaseModel):
+    owner_org_id: str
+    qr_code: str
+    size: str | None = None
+    color: str | None = None
+    notes: str | None = None
+
+@router.post("/_seed", status_code=201)
+async def seed_skip(
+    body: SeedIn,
+    session: AsyncSession = Depends(get_session),
+    x_api_key: str | None = Header(None, convert_underscores=False),
+):
+    admin_key = os.getenv("super-temp-seed-key")
+    if not admin_key or x_api_key != admin_key:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+
+    # upsert by qr_code for idempotency
+    existing = (
+        await session.execute(select(Skip).where(Skip.qr_code == body.qr_code))
+    ).scalar_one_or_none()
+
+    if existing:
+        # already seeded, return 200 OK with existing id
+        return {"id": str(existing.id), "qr_code": existing.qr_code}
+
+    s = Skip(
+        owner_org_id=body.owner_org_id,
+        qr_code=body.qr_code,
+        size=body.size,
+        color=body.color,
+        notes=body.notes,
+    )
+    session.add(s)
+    await session.flush()
+    return {"id": str(s.id), "qr_code": s.qr_code}
 
 def _qr_deeplink(code: str) -> str:
     base = settings.DRIVER_QR_BASE_URL
