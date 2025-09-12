@@ -124,7 +124,10 @@ class Settings(BaseSettings):
 
     # DB
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
-
+    DRIVER_QR_BASE_URL: str = "http://localhost:5173"                    #remove after test
+    CORS_ORIGINS: str = "*"                                                 #remove after test
+    # TEMP: one-time key to allow /skips/_seed during smoke tests       #remove after test
+    ADMIN_API_KEY: str | None = None                                     #remove after test
     # security
     JWT_SECRET: str = "dev"
 

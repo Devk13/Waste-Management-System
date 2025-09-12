@@ -2,6 +2,15 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
+from fastapi import APIRouter                                               #delete
+from fastapi import APIRouter, Depends, Header, HTTPException, status       #delete
+from pydantic import BaseModel                                              #delete
+from sqlalchemy import select                                               #delete
+from sqlalchemy.ext.asyncio import AsyncSession                             #delete
+from app.core.config import settings                                        #delete
+from app.db import get_session                                              #delete
+from app.models import models as m                                          #delete
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +32,48 @@ except Exception:  # pragma: no cover
 
 router = APIRouter(prefix="/skips", tags=["skips"])
 
+# ---------------------------------------------------------------------------
+# TEMP smoke-test helper: /skips/_seed (guarded by ADMIN_API_KEY)
+# Remove this endpoint and the ADMIN_API_KEY env var after your smoke tests.
+# ---------------------------------------------------------------------------
+
+def _admin_key_ok(x_api_key: str | None = Header(None)) -> None:
+    if not settings.ADMIN_API_KEY or x_api_key != settings.ADMIN_API_KEY:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+class _SeedSkip(BaseModel):
+    owner_org_id: str
+    qr_code: str
+    size: str | None = None
+    color: str | None = None
+    notes: str | None = None
+
+@router.post("/_seed", status_code=201, tags=["dev"])
+async def seed_skip(
+    payload: _SeedSkip,
+    session: AsyncSession = Depends(get_session),
+    _: None = Depends(_admin_key_ok),
+):
+    # if a skip with this qr_code already exists, just return its id (idempotent seed)
+    existing = (
+        await session.execute(select(m.Skip).where(m.Skip.qr_code == payload.qr_code))
+    ).scalar_one_or_none()
+    if existing:
+        return {"id": str(existing.id), "created": False}
+
+    new_skip = m.Skip(
+        owner_org_id=payload.owner_org_id,
+        qr_code=payload.qr_code,
+        size=payload.size,
+        color=payload.color,
+        notes=payload.notes,
+    )
+    session.add(new_skip)
+    await session.flush()
+    await session.commit()
+    return {"id": str(new_skip.id), "created": True}
+
+# --------------------------------------------------------------------------- endpoint
 
 def _qr_deeplink(code: str) -> str:
     base = settings.DRIVER_QR_BASE_URL
