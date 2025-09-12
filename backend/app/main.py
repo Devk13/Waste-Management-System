@@ -14,6 +14,8 @@ from app.core.config import (
 from app.db import engine
 from app.api import routes as api_routes
 
+from app.models.skip import Base as SkipBase                #one-time table creation
+from app.models.labels import Base as LabelsBase            #one-time table creation
 
 app = FastAPI(title="WMIS API")
 
@@ -61,6 +63,15 @@ app.add_middleware(
 )
 
 from sqlalchemy import text
+
+# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
+@app.on_event("startup")
+async def _bootstrap_db() -> None:
+    # Only creates if missing; no-op if already present.
+    async with engine.begin() as conn:
+        await conn.run_sync(SkipBase.metadata.create_all)
+        await conn.run_sync(LabelsBase.metadata.create_all)
+
 
 @app.get("/__debug/db")
 async def debug_db():
