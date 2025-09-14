@@ -4,6 +4,11 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+# create tables for these model groups
+from app.models.skip import Base as SkipBase
+from app.models.labels import Base as LabelsBase
+from app.models.driver import Base as DriverBase
+
 
 from app.core.config import (
     settings,
@@ -46,15 +51,23 @@ def meta_config():
         },
     }
 
-# ---------------------------------------------------------------------
-# Create tables once at startup (quick bootstrap; Alembic later)
-# ---------------------------------------------------------------------
+# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
 @app.on_event("startup")
 async def _bootstrap_db() -> None:
-    # Only creates if missing; no-op if already present.
+    # Don’t let a failed create_all crash the whole service
+    groups = [
+        ("skips", SkipBase),
+        ("labels", LabelsBase),
+        ("driver", DriverBase),
+    ]
     async with engine.begin() as conn:
-        await conn.run_sync(SkipBase.metadata.create_all)
-        await conn.run_sync(LabelsBase.metadata.create_all)
+        for name, base in groups:
+            try:
+                await conn.run_sync(base.metadata.create_all)
+                print(f"[bootstrap] ensured tables for {name}", flush=True)
+            except Exception as e:
+                # Log and continue so the app still comes up
+                print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
 
 # ---------------------------------------------------------------------
 # Tiny DB check to verify connectivity/migrations (used during smoke tests)
