@@ -9,7 +9,7 @@ import asyncio
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
 from app.models.driver import Base as DriverBase
-
+from sqlalchemy.exc import SQLAlchemyError  # optional, we’ll still catch Exception
 
 from app.core.config import (
     settings,
@@ -53,34 +53,17 @@ def meta_config():
     }
 
 
-from sqlalchemy.exc import SQLAlchemyError  # optional, we’ll still catch Exception
-
-
-# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
-@app.on_event("startup")
-async def _bootstrap_db() -> None:
-    # Don't let a failed create_all crash the whole service
-    groups = [
-        ("skips",  SkipBase),
-        ("labels", LabelsBase),
-        ("driver", DriverBase),
-    ]
-    async with engine.begin() as conn:
-        for name, base in groups:
-            try:
-                await conn.run_sync(base.metadata.create_all)
-                print(f"[bootstrap] ensured tables for {name}", flush=True)
-            except Exception as e:
-                # Log and continue so the app still comes up
-                print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
-# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
 @app.on_event("startup")
 async def _bootstrap_db() -> None:
     """
     Ensure tables for each model group exist.
-    Any failure is logged, but must NOT crash startup (Render treats that as a deploy failure).
+    Any failure is logged, but must NOT crash startup (Render will treat that as a deploy failure).
     """
-    groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase)]
+    groups = [
+        ("skips", SkipBase),
+        ("labels", LabelsBase),
+        ("driver", DriverBase),
+    ]
     try:
         async with engine.begin() as conn:
             for name, base in groups:
@@ -88,10 +71,12 @@ async def _bootstrap_db() -> None:
                     await conn.run_sync(base.metadata.create_all)
                     print(f"[bootstrap] ensured tables for {name}", flush=True)
                 except Exception as e:
+                    # Log and continue so the app still comes up
                     print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
-    except Exception as e:
-        # If the DB itself isn't reachable, still come up so health/config keeps working
+    except SQLAlchemyError as e:
+        # If the DB itself isn't reachable, still come up so health/config keep working
         print(f"[bootstrap] WARN: engine.begin() failed: {e}", flush=True)
+
 
 
 # ---------------------------------------------------------------------
