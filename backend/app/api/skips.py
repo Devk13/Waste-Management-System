@@ -42,14 +42,7 @@ def _admin_key_ok(x_api_key: str | None = Header(None)) -> None:
     if not settings.ADMIN_API_KEY or x_api_key != settings.ADMIN_API_KEY:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-class _SeedSkip(BaseModel):
-    owner_org_id: str
-    qr_code: str
-    size: str | None = None
-    color: str | None = None
-    notes: str | None = None
 
-# DEV seed payload (typed for clarity)
 class SeedIn(BaseModel):
     owner_org_id: str
     qr_code: str
@@ -63,19 +56,18 @@ async def seed_skip(
     session: AsyncSession = Depends(get_session),
     x_api_key: str | None = Header(None, convert_underscores=False),
 ):
-    # auth
-    from app.core.config import settings
-    if not x_api_key or x_api_key != settings.ADMIN_API_KEY:
+    admin_key = os.getenv("super-temp-seed-key") or os.getenv("SEED_API_KEY")  # either env name is fine
+    if not admin_key or x_api_key != admin_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
     # idempotent by qr_code
     existing = (
-        await session.execute(select(m.Skip).where(m.Skip.qr_code == body.qr_code))
+        await session.execute(select(Skip).where(Skip.qr_code == body.qr_code))
     ).scalar_one_or_none()
     if existing:
         return {"id": str(existing.id), "qr_code": existing.qr_code}
 
-    s = m.Skip(
+    s = Skip(
         owner_org_id=body.owner_org_id,
         qr_code=body.qr_code,
         size=body.size,
