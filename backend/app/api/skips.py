@@ -49,33 +49,6 @@ class _SeedSkip(BaseModel):
     color: str | None = None
     notes: str | None = None
 
-@router.post("/_seed", status_code=201, tags=["dev"])
-async def seed_skip(
-    payload: _SeedSkip,
-    session: AsyncSession = Depends(get_session),
-    _: None = Depends(_admin_key_ok),
-):
-    # if a skip with this qr_code already exists, just return its id (idempotent seed)
-    existing = (
-        await session.execute(select(m.Skip).where(m.Skip.qr_code == payload.qr_code))
-    ).scalar_one_or_none()
-    if existing:
-        return {"id": str(existing.id), "created": False}
-
-    new_skip = m.Skip(
-        owner_org_id=payload.owner_org_id,
-        qr_code=payload.qr_code,
-        size=payload.size,
-        color=payload.color,
-        notes=payload.notes,
-    )
-    session.add(new_skip)
-    await session.flush()
-    await session.commit()
-    return {"id": str(new_skip.id), "created": True}
-
-# --------------------------------------------------------------------------- endpoint
-
 # DEV seed payload (typed for clarity)
 class SeedIn(BaseModel):
     owner_org_id: str
