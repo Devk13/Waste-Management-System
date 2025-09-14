@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+import asyncio
 # create tables for these model groups
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
@@ -51,12 +52,16 @@ def meta_config():
         },
     }
 
+
+from sqlalchemy.exc import SQLAlchemyError  # optional, we’ll still catch Exception
+
+
 # --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
 @app.on_event("startup")
 async def _bootstrap_db() -> None:
-    # Don’t let a failed create_all crash the whole service
+    # Don't let a failed create_all crash the whole service
     groups = [
-        ("skips", SkipBase),
+        ("skips",  SkipBase),
         ("labels", LabelsBase),
         ("driver", DriverBase),
     ]
@@ -68,6 +73,26 @@ async def _bootstrap_db() -> None:
             except Exception as e:
                 # Log and continue so the app still comes up
                 print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
+# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
+@app.on_event("startup")
+async def _bootstrap_db() -> None:
+    """
+    Ensure tables for each model group exist.
+    Any failure is logged, but must NOT crash startup (Render treats that as a deploy failure).
+    """
+    groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase)]
+    try:
+        async with engine.begin() as conn:
+            for name, base in groups:
+                try:
+                    await conn.run_sync(base.metadata.create_all)
+                    print(f"[bootstrap] ensured tables for {name}", flush=True)
+                except Exception as e:
+                    print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
+    except Exception as e:
+        # If the DB itself isn't reachable, still come up so health/config keeps working
+        print(f"[bootstrap] WARN: engine.begin() failed: {e}", flush=True)
+
 
 # ---------------------------------------------------------------------
 # Tiny DB check to verify connectivity/migrations (used during smoke tests)
