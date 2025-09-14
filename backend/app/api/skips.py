@@ -56,7 +56,7 @@ async def seed_skip(
     session: AsyncSession = Depends(get_session),
     x_api_key: str | None = Header(None, convert_underscores=False),
 ):
-    admin_key = os.getenv("super-temp-seed-key") or os.getenv("SEED_API_KEY")  # either env name is fine
+    admin_key = os.getenv("ADMIN_API_KEY")  # either env name is fine
     if not admin_key or x_api_key != admin_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
