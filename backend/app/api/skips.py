@@ -53,30 +53,6 @@ class SeedIn(BaseModel):
     color: str | None = None
     notes: str | None = None
 
-# at top of file
-import os
-from fastapi import Header, HTTPException, status, Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.config import settings
-from app.db import get_session
-from app.models.models import Skip  # or from app.models import models as m; then use m.Skip
-
-def _admin_key_ok(
-    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
-) -> None:
-    expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
-    # print(f"[seed] expected={expected!r}, got={x_api_key!r}", flush=True)  # <- enable temporarily if needed
-    if expected and x_api_key != expected:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
-class SeedIn(BaseModel):
-    owner_org_id: str
-    qr_code: str
-    size: str | None = None
-    color: str | None = None
-    notes: str | None = None
-
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
