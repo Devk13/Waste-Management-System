@@ -47,7 +47,7 @@ def _admin_key_ok(
     got = (x_api_key or "").strip()
 
     # TEMP: uncomment the next line once if you need to debug in Render logs
-    # print(f"[seed] got_len={len(got)} exp_len={len(expected)} match={got==expected}", flush=True)
+    print(f"[seed] got_len={len(got)} exp_len={len(expected)} match={got==expected}", flush=True)
 
     if not expected or got != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
