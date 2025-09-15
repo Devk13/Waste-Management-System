@@ -21,6 +21,8 @@ from app.db import engine
 from app.api import routes as api_routes
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
+from urllib.parse import urlparse
+from app.db import engine, DB_URL
 
 app = FastAPI(title="WMIS API")
 
@@ -106,6 +108,20 @@ async def debug_db():
 
     return {"dialect": dialect, "tables": tables}
 
+@app.get("/__debug/db_url")
+def debug_db_url():
+    u = urlparse(DB_URL if "DB_URL" in globals() else settings.DATABASE_URL)
+    # mask password
+    netloc = u.netloc
+    if "@" in netloc and ":" in netloc.split("@", 1)[0]:
+        user, host = netloc.split("@", 1)
+        user = user.split(":")[0] + ":***"
+        netloc = user + "@" + host
+    return {
+        "scheme": u.scheme,          # should be postgresql+asyncpg
+        "netloc": netloc,
+        "query": u.query,            # if present, should contain ssl=true (NOT sslmode=...)
+    }
 # ---------------------------------------------------------------------
 # Mount all API routes AFTER app is created
 # ---------------------------------------------------------------------

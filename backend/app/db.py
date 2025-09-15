@@ -14,11 +14,11 @@ from app.core.config import settings
 DB_URL = settings.DATABASE_URL
 
 # Render’s managed Postgres with asyncpg needs `ssl=True` (not sslmode)
-connect_args: dict = {}
-if DB_URL.startswith("postgresql+asyncpg://") and "ssl=" not in DB_URL and "sslmode=" not in DB_URL:
+connect_args = {}
+if DB_URL.startswith("postgresql+asyncpg://") and "ssl=" not in DB_URL:
     connect_args["ssl"] = True  # safe default for managed Postgres
 
-engine: AsyncEngine = create_async_engine(
+engine = create_async_engine(
     DB_URL,
     future=True,
     echo=False,
