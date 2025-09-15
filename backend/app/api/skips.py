@@ -39,7 +39,7 @@ router = APIRouter(prefix="/skips", tags=["skips"])
 # ---------------------------------------------------------------------------
 
 def _admin_key_ok(
-    x_api_key: str | None = Header(None, convert_underscores=False)  # header is exactly "X-Api-Key"
+    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),  # header is exactly "X-Api-Key"
 ) -> None:
     # Accept either ADMIN_API_KEY (preferred) or legacy SEED_API_KEY
     expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
