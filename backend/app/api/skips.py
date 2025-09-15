@@ -39,10 +39,17 @@ router = APIRouter(prefix="/skips", tags=["skips"])
 # Remove this endpoint and the ADMIN_API_KEY env var after your smoke tests.
 # ---------------------------------------------------------------------------
 
+# ── single, robust guard for seed endpoint ────────────────────────────────────
+def _admin_key_ok(
+    x_api_key: str | None = Header(None, convert_underscores=False)  # header is "X-Api-Key"
+) -> None:
+    expected = (settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY") or "").strip()
+    got = (x_api_key or "").strip()
 
-def _admin_key_ok(x_api_key: str | None = Header(None, convert_underscores=False)) -> None:
-    expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
-    if not expected or x_api_key != expected:
+    # TEMP: uncomment the next line once if you need to debug in Render logs
+    # print(f"[seed] got_len={len(got)} exp_len={len(expected)} match={got==expected}", flush=True)
+
+    if not expected or got != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
@@ -56,8 +63,8 @@ class SeedIn(BaseModel):
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
-    session: AsyncSession = Depends(get_session),
     _: None = Depends(_admin_key_ok),  # authentication guard
+    session: AsyncSession = Depends(get_session),
 ):
     try:
         # Idempotent by qr_code
