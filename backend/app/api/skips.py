@@ -41,15 +41,11 @@ router = APIRouter(prefix="/skips", tags=["skips"])
 
 # ── single, robust guard for seed endpoint ────────────────────────────────────
 def _admin_key_ok(
-    x_api_key: str | None = Header(None, convert_underscores=False)  # header is "X-Api-Key"
+    x_api_key: str | None = Header(None)  # header is "X-Api-Key"
 ) -> None:
-    expected = (settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY") or "").strip()
-    got = (x_api_key or "").strip()
+    expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
 
-    # TEMP: uncomment the next line once if you need to debug in Render logs
-    print(f"[seed] got_len={len(got)} exp_len={len(expected)} match={got==expected}", flush=True)
-
-    if not expected or got != expected:
+    if not expected or x_api_key != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
@@ -63,8 +59,8 @@ class SeedIn(BaseModel):
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
-    _: None = Depends(_admin_key_ok),  # authentication guard
     session: AsyncSession = Depends(get_session),
+    _: None = Depends(_admin_key_ok),  # authentication guard
 ):
     try:
         # Idempotent by qr_code
