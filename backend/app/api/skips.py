@@ -11,7 +11,7 @@ from app.core.config import settings                                        #del
 from app.db import get_session                                              #delete
 from app.models import models as m                                          #delete
 from app.models.models import Skip
-
+from app.core.config import settings
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,10 +38,13 @@ router = APIRouter(prefix="/skips", tags=["skips"])
 # Remove this endpoint and the ADMIN_API_KEY env var after your smoke tests.
 # ---------------------------------------------------------------------------
 
-def _admin_key_ok(x_api_key: str | None = Header(None)) -> None:
-    if not settings.ADMIN_API_KEY or x_api_key != settings.ADMIN_API_KEY:
+def _admin_key_ok(
+    x_api_key: str | None = Header(None, convert_underscores=False)  # header is exactly "X-Api-Key"
+) -> None:
+    # Accept either ADMIN_API_KEY (preferred) or legacy SEED_API_KEY
+    expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
+    if not expected or x_api_key != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
 
 class SeedIn(BaseModel):
     owner_org_id: str
@@ -55,6 +58,7 @@ async def seed_skip(
     body: SeedIn,
     session: AsyncSession = Depends(get_session),
     x_api_key: str | None = Header(None, convert_underscores=False),
+    _: None = Depends(_admin_key_ok),  # reuse the check above
 ):
     admin_key = os.getenv("ADMIN_API_KEY")  # either env name is fine
     if not admin_key or x_api_key != admin_key:
