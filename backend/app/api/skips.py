@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from fastapi import Header
 
 from app.api.deps import get_current_user
 from app.core.config import settings
@@ -38,13 +39,12 @@ router = APIRouter(prefix="/skips", tags=["skips"])
 # Remove this endpoint and the ADMIN_API_KEY env var after your smoke tests.
 # ---------------------------------------------------------------------------
 
-def _admin_key_ok(
-    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),  # header is exactly "X-Api-Key"
-) -> None:
-    # Accept either ADMIN_API_KEY (preferred) or legacy SEED_API_KEY
+
+def _admin_key_ok(x_api_key: str | None = Header(None, convert_underscores=False)) -> None:
     expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
-    if expected and x_api_key != expected:
+    if not expected or x_api_key != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
 
 class SeedIn(BaseModel):
     owner_org_id: str
