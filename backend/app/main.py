@@ -52,18 +52,20 @@ def meta_config():
         },
     }
 
+# --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
 
 @app.on_event("startup")
 async def _bootstrap_db() -> None:
     """
     Ensure tables for each model group exist.
-    Any failure is logged, but must NOT crash startup (Render will treat that as a deploy failure).
+    Any failure must NOT crash startup (Render treats that as a deploy failure).
     """
     groups = [
         ("skips", SkipBase),
         ("labels", LabelsBase),
         ("driver", DriverBase),
     ]
+
     try:
         async with engine.begin() as conn:
             for name, base in groups:
@@ -71,12 +73,14 @@ async def _bootstrap_db() -> None:
                     await conn.run_sync(base.metadata.create_all)
                     print(f"[bootstrap] ensured tables for {name}", flush=True)
                 except Exception as e:
-                    # Log and continue so the app still comes up
+                    # Create per-group can fail (permissions, partial migrations, etc.) – keep going
                     print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
     except SQLAlchemyError as e:
-        # If the DB itself isn't reachable, still come up so health/config keep working
+        # DB connectivity / auth / network issues – log and allow app to start so /health works
         print(f"[bootstrap] WARN: engine.begin() failed: {e}", flush=True)
-
+    except Exception as e:
+        # Absolute last-ditch safety: never let startup raise
+        print(f"[bootstrap] WARN: unexpected error during bootstrap: {e}", flush=True)
 
 
 # ---------------------------------------------------------------------
