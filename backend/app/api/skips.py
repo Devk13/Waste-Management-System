@@ -43,7 +43,7 @@ def _admin_key_ok(
 ) -> None:
     # Accept either ADMIN_API_KEY (preferred) or legacy SEED_API_KEY
     expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
-    if not expected or x_api_key != expected:
+    if expected and x_api_key != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 class SeedIn(BaseModel):
@@ -60,9 +60,6 @@ async def seed_skip(
     x_api_key: str | None = Header(None, convert_underscores=False),
     _: None = Depends(_admin_key_ok),  # reuse the check above
 ):
-    admin_key = os.getenv("ADMIN_API_KEY")  # either env name is fine
-    if not admin_key or x_api_key != admin_key:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
     # idempotent by qr_code
     existing = (
