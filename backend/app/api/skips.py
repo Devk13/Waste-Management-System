@@ -53,31 +53,60 @@ class SeedIn(BaseModel):
     color: str | None = None
     notes: str | None = None
 
+# at top of file
+import os
+from fastapi import Header, HTTPException, status, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.config import settings
+from app.db import get_session
+from app.models.models import Skip  # or from app.models import models as m; then use m.Skip
+
+def _admin_key_ok(
+    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
+) -> None:
+    expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
+    # print(f"[seed] expected={expected!r}, got={x_api_key!r}", flush=True)  # <- enable temporarily if needed
+    if expected and x_api_key != expected:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+class SeedIn(BaseModel):
+    owner_org_id: str
+    qr_code: str
+    size: str | None = None
+    color: str | None = None
+    notes: str | None = None
+
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
     session: AsyncSession = Depends(get_session),
-    x_api_key: str | None = Header(None, convert_underscores=False),
-    _: None = Depends(_admin_key_ok),  # reuse the check above
+    _: None = Depends(_admin_key_ok),  # authentication guard
 ):
+    try:
+        # Idempotent by qr_code
+        existing = (
+            await session.execute(select(Skip).where(Skip.qr_code == body.qr_code))
+        ).scalar_one_or_none()
+        if existing:
+            return {"id": str(existing.id), "qr_code": existing.qr_code}
 
-    # idempotent by qr_code
-    existing = (
-        await session.execute(select(Skip).where(Skip.qr_code == body.qr_code))
-    ).scalar_one_or_none()
-    if existing:
-        return {"id": str(existing.id), "qr_code": existing.qr_code}
-
-    s = Skip(
-        owner_org_id=body.owner_org_id,
-        qr_code=body.qr_code,
-        size=body.size,
-        color=body.color,
-        notes=body.notes,
-    )
-    session.add(s)
-    await session.flush()
-    return {"id": str(s.id), "qr_code": s.qr_code}
+        s = Skip(
+            owner_org_id=body.owner_org_id,
+            qr_code=body.qr_code,
+            size=body.size,
+            color=body.color,
+            notes=body.notes,
+        )
+        session.add(s)
+        await session.flush()
+        await session.commit()
+        return {"id": str(s.id), "qr_code": s.qr_code}
+    except Exception as e:
+        # helpful during smoke tests; remove later
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="seed_failed")
 
 
 def _qr_deeplink(code: str) -> str:
