@@ -12,6 +12,8 @@ from app.models.driver import Base as DriverBase
 from sqlalchemy.exc import SQLAlchemyError  # optional, we’ll still catch Exception
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+from app.middleware_apikey import ApiKeyMiddleware
+
 
 from app.core.config import (
     settings,
@@ -39,6 +41,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(ApiKeyMiddleware)
 
 # ---------------------------------------------------------------------
 # Meta config for the frontend (skip sizes + color legend + driver QR base)
