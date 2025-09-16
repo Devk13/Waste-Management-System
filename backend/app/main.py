@@ -65,17 +65,19 @@ def meta_config():
 
 @app.on_event("startup")
 async def _bootstrap_db() -> None:
-    """
-    Ensure tables for each model group exist.
-    Failures are logged but must NOT crash startup (Render treats that as a deploy failure).
-    """
-    from app.models.skip import Base as SkipBase
-    from app.models.labels import Base as LabelsBase
-    from app.models.driver import Base as DriverBase
-    from app.db import engine
+    # skip metadata.create_all in non-dev to avoid conflicts with Alembic on Render
+    if str(getattr(settings, "ENV", "dev")).lower() != "dev":
+        print("[bootstrap] skip create_all in non-dev")
+        return
 
-    groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase)]
+    # DEV ONLY: create tables for quick local runs
     try:
+        from app.models.skip import Base as SkipBase
+        from app.models.labels import Base as LabelsBase
+        from app.models.driver import Base as DriverBase
+        from app.db import engine
+
+        groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase)]
         async with engine.begin() as conn:
             for name, base in groups:
                 try:
@@ -84,7 +86,6 @@ async def _bootstrap_db() -> None:
                 except Exception as e:
                     print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
     except Exception as e:
-        # If DB isn’t reachable, still start so health/meta work (you’ll see 500 on DB endpoints)
         print(f"[bootstrap] WARN: engine.begin() failed: {e}", flush=True)
 
 
