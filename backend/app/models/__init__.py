@@ -8,3 +8,9 @@ from . import labels as _label_models  # noqa: F401
 # Optional: export classes if you want
 from .skip import Skip, SkipStatus  # noqa: F401
 from .labels import SkipAsset, SkipAssetKind  # noqa: F401
+
+# Ensure mapper registry knows both classes before first use
+from . import skip as _skip     # noqa: F401  side-effect: defines class Skip
+from . import labels as _labels # noqa: F401  side-effect: defines class SkipAsset
+
+__all__ = ["Base"]

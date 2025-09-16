@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column, relationship, declarative_base
+from sqlalchemy import String, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-Base = declarative_base()  # local Base for label assets
+# CRUCIAL: use the shared Base so SQLAlchemy sees Skip <-> SkipAsset in the same registry
+from app.models.base import Base
 
-if TYPE_CHECKING:
-    from .skip import Skip  # only for type hints
+if TYPE_CHECKING:  # only for type hints; avoids circular imports at runtime
+    from .skip import Skip
 
 
 class SkipAssetKind:
@@ -19,14 +20,21 @@ class SkipAssetKind:
 class SkipAsset(Base):
     __tablename__ = "skip_assets"
 
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    skip_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    # IMPORTANT: FK so SQLAlchemy can join Skip <-> SkipAsset
+    skip_id: Mapped[str] = mapped_column(ForeignKey("skips.id", ondelete="CASCADE"), index=True, nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     idx: Mapped[int | None] = mapped_column(default=None)
     content_type: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # 👇 rename Python attribute to 'data', keep column name "bytes"
+
+    # store bytes; attribute named 'data' but column remains 'bytes'
     data: Mapped[bytes] = mapped_column("bytes", nullable=False)
+
 
     # relationships
     skip: Mapped["Skip"] = relationship("Skip", back_populates="assets")
+
+
+__all__ = ["SkipAsset", "SkipAssetKind", "Base"]
