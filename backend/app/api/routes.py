@@ -47,3 +47,4 @@ else:
 # --- normal app routers
 _try_include("app.api.skips", prefix="/skips", tags=["skips"])
 # add more when ready...
+print("[routes] ready", flush=True)
