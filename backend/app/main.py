@@ -10,6 +10,8 @@ from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
 from app.models.driver import Base as DriverBase
 from sqlalchemy.exc import SQLAlchemyError  # optional, we’ll still catch Exception
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
 from app.core.config import (
     settings,
@@ -85,28 +87,40 @@ async def _bootstrap_db() -> None:
 # ---------------------------------------------------------------------
 # Tiny DB check to verify connectivity/migrations (used during smoke tests)
 # ---------------------------------------------------------------------
+@app.get("/__health")
+async def health():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("select 1"))
+        return {"ok": True}
+    except Exception as e:
+        # single line reason for Render logs/clients
+        raise HTTPException(status_code=500, detail=f"db ping failed: {type(e).__name__}: {e}")
+
 @app.get("/__debug/db")
 async def debug_db():
-    # Use the already-imported async engine
-    dialect = engine.dialect.name  # e.g., "postgresql" or "sqlite"
+    try:
+        dialect = engine.dialect.name  # e.g. "postgresql+asyncpg" or "sqlite"
+        if dialect.startswith("postgres"):
+            sql = text("""
+                select table_name
+                from information_schema.tables
+                where table_schema = current_schema()
+                order by table_name
+            """)
+        else:
+            sql = text("select name as table_name from sqlite_master where type='table' order by name")
+        async with engine.begin() as conn:
+            res = await conn.execute(sql)
+            tables = [row[0] for row in res.fetchall()]
+        return {"dialect": dialect, "tables": tables}
+    except Exception as e:
+        # return the raw reason instead of a generic 500
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"{type(e).__name__}: {e}"}
+        )
 
-    if dialect.startswith("postgres"):
-        # List user-visible tables in current schema (usually 'public')
-        sql = text("""
-            select table_name
-            from information_schema.tables
-            where table_schema = current_schema()
-            order by table_name
-        """)
-    else:
-        # SQLite (local dev)
-        sql = text("select name as table_name from sqlite_master where type='table' order by name")
-
-    async with engine.begin() as conn:
-        res = await conn.execute(sql)
-        tables = [row[0] for row in res.fetchall()]
-
-    return {"dialect": dialect, "tables": tables}
 
 @app.get("/__debug/db_url")
 def debug_db_url():
