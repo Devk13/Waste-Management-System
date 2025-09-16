@@ -3,8 +3,12 @@ from __future__ import annotations
 
 from importlib import import_module
 from fastapi import APIRouter
+from app.core.config import settings
 
 router = APIRouter()
+
+from .driver import router as driver_router
+router.include_router(driver_router, tags=["driver"])
 
 
 def _try_include(module_path: str, prefix: str = "", tags: list[str] | None = None):
@@ -17,6 +21,15 @@ def _try_include(module_path: str, prefix: str = "", tags: list[str] | None = No
         print(f"[routes] mounted {module_path}")
     except Exception as e:  # keep startup resilient
         print(f"[routes] skipping {module_path}: {e}")
+
+# Admin/demo routes — gated
+if str(getattr(settings, "EXPOSE_ADMIN_ROUTES", "false")).lower() in ("1", "true", "yes"):
+    try:
+        from .skips_demo import router as admin_skips_router
+        router.include_router(admin_skips_router)
+        print("[routes] mounted admin skips demo", flush=True)
+    except Exception as e:
+        print(f"[routes] skipping admin skips demo: {e}", flush=True)
 
 # Keep only the routers we actually use
 _try_include("app.api.skips", prefix="/skips", tags=["skips"])      # your existing skips API
