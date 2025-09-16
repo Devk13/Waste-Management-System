@@ -121,6 +121,7 @@ class Settings(BaseSettings):
     # runtime env
     ENV: str = "dev"
     DEBUG: bool = False
+    EXPOSE_ADMIN_ROUTES: bool = False  # picked up from env
 
     # DB
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
