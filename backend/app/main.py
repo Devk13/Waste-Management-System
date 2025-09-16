@@ -145,3 +145,20 @@ def debug_db_url():
 # Mount all API routes AFTER app is created
 # ---------------------------------------------------------------------
 app.include_router(api_routes.router)
+
+# --- TEMP: force-mount admin skips demo so it appears in /docs right away
+try:
+    from app.api.skips_demo import router as admin_skips_router
+    app.include_router(admin_skips_router, tags=["admin-skips"])
+    print("[main] mounted admin_skips_router", flush=True)
+except Exception as e:
+    print(f"[main] couldn't mount admin_skips_router: {e}", flush=True)
+
+# --- Ensure /skips is mounted even if the helper or tag logic differs
+try:
+    # if your module exposes `router`
+    from app.api.skips import router as skips_router
+except Exception:
+    # some projects name it `skips_api`
+    from app.api.skips import skips_api as skips_router
+app.include_router(skips_router, prefix="/skips", tags=["skips"])
