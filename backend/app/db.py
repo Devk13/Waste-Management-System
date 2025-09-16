@@ -21,32 +21,46 @@ _VALID_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify
 
 def _normalize_database_url(raw: str) -> str:
     """
-    Normalize DATABASE_URL to an async SQLAlchemy URL.
-
-    - postgres/postgresql -> postgresql+asyncpg
-    - sqlite              -> sqlite+aiosqlite
-    - asyncpg driver      -> drop sslmode, prefer ?ssl=true
-    - psycopg driver      -> map ssl=true -> sslmode=require, validate sslmode
+    Normalize DATABASE_URL for our async drivers.
+    - postgres* -> postgresql+asyncpg and sane ssl/sslmode
+    - sqlite*   -> sqlite+aiosqlite while preserving the original '///' slashes
+                  and dropping any ssl/sslmode query params
     """
     if not raw:
-        return "sqlite+aiosqlite:///dev.db"
+        return "sqlite+aiosqlite:///./dev.db"
 
     u = urlparse(raw)
     scheme = u.scheme
 
-    # Scheme → async driver
+    # --- SQLite: preserve slashes and drop ssl flags -------------------------
+    if scheme.startswith("sqlite"):
+        # Keep the exact path part (e.g., sqlite:///dev.db) but swap driver
+        raw_sqlite = (
+            raw if raw.startswith("sqlite+aiosqlite:")
+            else raw.replace("sqlite:", "sqlite+aiosqlite:", 1)
+        )
+
+        # Strip any ssl/sslmode params some envs append globally
+        u2 = urlparse(raw_sqlite)
+        q = dict(parse_qsl(u2.query, keep_blank_values=True))
+        q.pop("ssl", None)
+        q.pop("sslmode", None)
+
+        # Rebuild WITHOUT disturbing the path slashes
+        return raw_sqlite.split("?", 1)[0] + (("?" + urlencode(q)) if q else "")
+
+    # --- Postgres and others --------------------------------------------------
+    # driver selection
     if scheme in ("postgres", "postgresql"):
         scheme = "postgresql+asyncpg"
-    elif scheme.startswith("sqlite"):
-        scheme = "sqlite+aiosqlite"
-    # else: keep explicit driver if already set (postgresql+asyncpg / postgresql+psycopg etc.)
 
     is_asyncpg = scheme.startswith("postgresql+asyncpg")
 
+    # parse and normalize query
     q = dict(parse_qsl(u.query, keep_blank_values=True))
 
     if is_asyncpg:
-        # asyncpg must not receive sslmode; use ssl=true
+        # asyncpg: don't use sslmode; prefer ssl=true if present
         q.pop("sslmode", None)
         v = str(q.get("ssl", "true")).lower()
         if v in ("true", "1", "yes", "on", ""):
@@ -54,14 +68,13 @@ def _normalize_database_url(raw: str) -> str:
         else:
             q.pop("ssl", None)
     else:
-        # psycopg: accept ssl=true → sslmode=require; validate/normalize sslmode
+        # psycopg and other sync drivers (local/dev)
         if q.get("ssl") is not None:
-            if str(q["ssl"]).lower() in ("true", "1", "yes", "on"):
+            v = str(q["ssl"]).lower()
+            if v in ("true", "1", "yes", "on"):
                 q.pop("ssl", None)
-                q["sslmode"] = "require"
             else:
-                q.pop("ssl", None)
-
+                q["sslmode"] = "require"
         if "sslmode" in q:
             v = str(q["sslmode"]).lower()
             if v in ("true", "1", "yes", "on", "") or v not in _VALID_SSLMODES:
