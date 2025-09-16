@@ -84,6 +84,10 @@ async def get_by_qr(qr: str, db: AsyncSession = Depends(get_db)):
         "created_at": s.created_at,
     }
 
+@router.get("/ping")  # GET /admin/skips/ping
+def ping():
+    return {"ok": True}
+
 @router.delete("/{skip_id}", dependencies=[Depends(require_admin)])
 async def delete_skip(skip_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(Skip).where(Skip.id == skip_id).limit(1))
