@@ -132,21 +132,24 @@ async def _get_skip_by_qr(db: AsyncSession, qr: str) -> Skip:
 # -------------------- Endpoints ---------------------------------------------
 @router.post("/dev/ensure-skip")
 async def dev_ensure_skip(payload: EnsureSkipIn, db: AsyncSession = Depends(get_db)):
-    # Disable in prod
     if os.getenv("ENV", "dev").lower() == "prod":
         raise HTTPException(404, "not found")
-    res = await db.execute(select(Skip).where(Skip.qr_code == payload.qr_code))
-    skip = res.scalar_one_or_none()
-    if not skip:
-        skip = Skip(qr_code=payload.qr_code, zone_id=payload.zone_id)
-        try:
-            skip.status = SkipStatus.IN_STOCK.value  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        db.add(skip)
-        await db.commit()
-        await db.refresh(skip)
-    return {"id": skip.id, "qr_code": skip.qr_code, "status": getattr(skip, "status", None), "zone_id": getattr(skip, "zone_id", None)}
+    try:
+        res = await db.execute(select(Skip).where(Skip.qr_code == payload.qr_code))
+        skip = res.scalar_one_or_none()
+        if not skip:
+            skip = Skip(qr_code=payload.qr_code, zone_id=payload.zone_id)
+            try:
+                skip.status = SkipStatus.IN_STOCK.value  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            db.add(skip)
+            await db.commit()
+            await db.refresh(skip)
+        return {"id": skip.id, "qr_code": skip.qr_code, "status": getattr(skip, "status", None), "zone_id": getattr(skip, "zone_id", None)}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(500, f"dev_ensure_skip failed: {e.__class__.__name__}: {e}")
 
 
 @router.get("/scan", response_model=ScanOut)
