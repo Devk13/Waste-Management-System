@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.core.config import settings
 
 router = APIRouter()
+print("[routes] boot", flush=True)  # proves routes.py imported
 
 # --- existing driver routes
 from .driver import router as driver_router
@@ -27,6 +28,11 @@ def _try_include(module_path: str, prefix: str = "", tags: list[str] | None = No
 # --- admin/demo routes gate (env flag)
 # accepts: true/1/yes (case-insensitive). Reads from settings, falls back to raw env.
 _EXPOSE = str(getattr(settings, "EXPOSE_ADMIN_ROUTES", os.getenv("EXPOSE_ADMIN_ROUTES", "false"))).lower() in ("1", "true", "yes")
+
+print(f"[routes] flag trace | env={os.getenv('EXPOSE_ADMIN_ROUTES')} "
+      f"| settings={getattr(settings, 'EXPOSE_ADMIN_ROUTES', None)} "
+      f"| resolved={_EXPOSE}", flush=True)
+
 if _EXPOSE:
     try:
         from .skips_demo import router as admin_skips_router
