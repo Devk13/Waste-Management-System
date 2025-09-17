@@ -1,15 +1,16 @@
+# ===============================================
+# file: backend/app/api/skips_smoke.py
+# ===============================================
 from __future__ import annotations
 from typing import Dict, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.api.deps import get_db
 
-# tolerate missing tables gracefully
 try:
     from app.models.skip import Skip, SkipPlacement, SkipMovement
-except Exception:  # minimal fallbacks so /__smoke never crashes
+except Exception:
     Skip = SkipPlacement = SkipMovement = None  # type: ignore
 
 router = APIRouter(tags=["skips"])

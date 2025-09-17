@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from importlib import import_module
+from typing import List, Dict, Any, Tuple
 from fastapi import APIRouter
 from app.core.config import settings
 
@@ -14,6 +15,36 @@ print("[routes] boot", flush=True)  # proves routes.py imported
 # --- existing driver routes
 from .driver import router as driver_router
 router.include_router(driver_router, tags=["driver"])
+
+# (prefix, module_path, tag)
+MOUNTS: List[Tuple[str, str, str | None]] = [
+    ("/driver", "app.api.driver", "driver"),
+    ("/skips", "app.api.skips", "skips"),                 # <- main skips router
+    ("/skips", "app.api.skips_smoke", "skips"),           # <- smoke counts
+    ("/driver/dev", "app.api.dev", "dev"),                # <- ensure-skip
+    ("", "app.api.driver_schedule", "driver:schedule"),   # <- optional schedule
+    ("", "app.api.wtn", "wtn"),                           # <- WTN APIs
+    ("", "app.api.debug_routes", "__debug"),              # <- /__debug/*
+]
+
+# exportable report for /__debug/mounts
+__mount_report__: List[Dict[str, Any]] = []
+
+for prefix, modpath, tag in MOUNTS:
+    try:
+        mod = import_module(modpath)
+        kw = {"prefix": prefix}
+        if tag:
+            kw["tags"] = [tag]
+        api_router.include_router(mod.router, **kw)  # type: ignore[attr-defined]
+        __mount_report__.append({"module": modpath, "prefix": prefix, "ok": True})
+        log.info("Mounted %s at %s", modpath, prefix)
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        __mount_report__.append({"module": modpath, "prefix": prefix, "ok": False, "error": msg})
+        log.warning("Skipped %s at %s: %s", modpath, prefix, msg)
+
+__all__ = ["api_router", "__mount_report__"]
 
 # --- tiny helper to mount routers by module path (keeps startup resilient)
 def _try_include(module_path: str, prefix: str = "", tags: list[str] | None = None):
