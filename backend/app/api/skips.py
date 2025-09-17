@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from fastapi import Header
 from app.models.skip import Skip, SkipStatus
-from app.models.models import SkipPlacement
+from app.models import SkipPlacement
 from app.api.deps import get_db
 
 from app.api.deps import get_current_user

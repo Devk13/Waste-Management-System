@@ -1,28 +1,28 @@
-# backend/app/main.py
+# ======================================================================
+# file: backend/app/main.py   (add the /__debug/mounts endpoint)
+# ======================================================================
 from __future__ import annotations
-import os, logging
+import os
+import logging
 from typing import Any, Dict, List
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
-
 from app.db import DB_URL, engine
 from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets
 
-# middleware: allow public probes/docs
 try:
     from app.middleware_apikey import ApiKeyMiddleware
-except Exception:  # no-op if file missing
-    class ApiKeyMiddleware:
+except Exception:
+    class ApiKeyMiddleware:  # no-op in case file is missing
         def __init__(self, app, **_): ...
 
 log = logging.getLogger("uvicorn")
-app = FastAPI(title="Waste Management System")
 
-# CORS
+app = FastAPI(title="Waste Management System")  # ensure only one app is created
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS_LIST or ["*"],
@@ -30,8 +30,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# API key: protect /driver in prod; allow probes/docs/smoke
 app.add_middleware(
     ApiKeyMiddleware,
     protected_prefixes=("/driver",),
@@ -39,7 +37,6 @@ app.add_middleware(
     hide_as_404=False,
 )
 
-# meta for UI
 @app.get("/meta/config")
 def meta_config():
     return {
@@ -51,21 +48,19 @@ def meta_config():
 async def _startup() -> None:
     print("[startup] WMIS main online", flush=True)
     print(f"[startup] DB_URL = {DB_URL}", flush=True)
-    # try mounting the main API bundle now (so a bad import doesn't kill boot)
+    # Lazy include to avoid boot crashing if some router has a bad import
     try:
         from app.api.routes import api_router
         app.include_router(api_router)
         print("[startup] included api_router", flush=True)
     except Exception as e:
         print(f"[startup] WARN: couldn't include api_router: {type(e).__name__}: {e}", flush=True)
-
-    # log known routes
     for r in app.routes:
         p = getattr(r, "path", "")
         if p:
             log.info("[ROUTE] %s", p)
 
-# ---- Health & DB debug ------------------------------------------------
+# Health + DB helpers (unchanged)
 @app.get("/__health", tags=["__debug"])
 async def health():
     try:
@@ -98,9 +93,32 @@ def debug_db_url():
         user, host = nl.split("@", 1); user = user.split(":")[0] + ":***"; nl = user + "@" + host
     return {"scheme": u.scheme, "netloc": nl, "query": u.query}
 
-# ---- Guaranteed probes (public) --------------------------------------
+# --- new: guaranteed mounts inspector (no imports needed) --------------
+@app.get("/__debug/mounts")
+def __debug_mounts() -> List[Dict[str, Any]]:
+    """
+    Pure runtime view of what is actually mounted.
+    Groups routes by first path segment and shows a sample.
+    """
+    seen: Dict[str, Dict[str, Any]] = {}
+    for r in app.routes:
+        if not isinstance(r, APIRoute):
+            continue
+        path = r.path or "/"
+        seg = path.split("/", 2)[1] if "/" in path[1:] else ""
+        key = "/" + seg if seg else "/"
+        entry = seen.setdefault(key, {"prefix": key, "routes": 0, "examples": []})
+        entry["routes"] += 1
+        if len(entry["examples"]) < 3:
+            entry["examples"].append({"path": path, "methods": sorted(list(r.methods or []))})
+    # include quick booleans for expected groups
+    expected = ["/driver", "/skips", "/__debug", "/__meta", "/wtn"]
+    return [{"prefix": k, **v, "expected": k in expected} for k, v in sorted(seen.items())]
+
+# --- existing probes you already added (keep) --------------------------
 @app.get("/__meta/ping")
-def __meta_ping() -> Dict[str, Any]: return {"ok": True}
+def __meta_ping() -> Dict[str, Any]:
+    return {"ok": True}
 
 @app.get("/__meta/build")
 def __meta_build() -> Dict[str, Any]:
@@ -137,7 +155,7 @@ async def __skips_smoke() -> Dict[str, Any]:
         res["ok"] = False; res["error"] = f"{type(e).__name__}: {e}"
     return res
 
-# ---- Try to hard-mount /skips router; ignore if it still errors -------
+# Try to mount /skips router; if it still has bad imports we keep booting
 try:
     from app.api.skips import router as skips_router
     app.include_router(skips_router, prefix="/skips", tags=["skips"])
