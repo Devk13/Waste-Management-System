@@ -187,14 +187,17 @@ if debug_router is not None:
 if skips_smoke_router is not None:
     app.include_router(skips_smoke_router, prefix="/skips")
 
-# Simple build probe to confirm the deployed code revision
+# --- Fingerprint endpoints to prove which build is running ---------------
 @app.get("/__meta/ping")
-def meta_ping() -> dict:
-    import os
+def meta_ping():
+    return {"ok": True}
+
+@app.get("/__meta/build")
+def meta_build():
     return {
-        "ok": True,
         "env": os.getenv("ENV", "dev"),
-        "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")),  # set by Render if configured
+        "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")),
+        "app_dir": "backend",
     }
 
 # --- TEMP: force-mount admin skips demo so it appears in /docs right away

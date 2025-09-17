@@ -1,12 +1,19 @@
-#!/usr/bin/env bash
+# path: scripts/migrate_then_start.sh   (repo root)
+# make executable: git add + chmod + commit this exact file
 set -euo pipefail
 
-# Run migrations (create head if none exist)
-if ! alembic upgrade head; then
-  echo "No revisions? Creating initial revision..." >&2
-  alembic revision --autogenerate -m "init schema"
-  alembic upgrade head
-fi
+echo "[entry] sha=${RENDER_GIT_COMMIT:-unknown} env=${ENV:-prod}"
 
-# Start API
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-10000}"
+APP_DIR="${APP_DIR:-backend}"
+cd "$APP_DIR"
+
+# Alembic migrations (quiet if no migrations)
+echo "[entry] running alembic upgrade head"
+alembic upgrade head || true
+
+# Start uvicorn from repo root, telling it where the app package lives
+cd ..
+exec python -m uvicorn app.main:app \
+  --app-dir backend \
+  --host 0.0.0.0 \
+  --port "${PORT:-8000}"
