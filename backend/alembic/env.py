@@ -36,7 +36,7 @@ from app.models.labels import Base as LabelsBase  # type: ignore
 from app.models.driver import Base as DriverBase  # type: ignore
 
 from sqlalchemy import MetaData
-
+config.set_main_option("sqlalchemy.url", str(DB_URL))
 
 def _combine_metadata(*metas: Sequence[MetaData]) -> MetaData:
     combined = MetaData()
@@ -51,10 +51,6 @@ target_metadata = _combine_metadata(
     LabelsBase.metadata,
     DriverBase.metadata,
 )
-
-# Ensure Alembic uses the app's DB URL (Render et al.)
-config.set_main_option("sqlalchemy.url", DB_URL)
-
 
 # ------------------------------------------------------------
 # Helpers

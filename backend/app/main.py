@@ -1,6 +1,4 @@
-# ======================================================================
-# file: backend/app/main.py  (clean, single app + public probes)
-# ======================================================================
+# backend/app/main.py
 from __future__ import annotations
 import os
 import logging
@@ -18,6 +16,8 @@ from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_sk
 from app.middleware_apikey import ApiKeyMiddleware
 
 log = logging.getLogger("uvicorn")
+
+# One app only
 app = FastAPI(title="Waste Management System")
 
 # CORS
@@ -29,15 +29,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API key protection: allow debug/meta/docs & smoke without a key
+# API-key: protect driver*, allow public probes/docs
 app.add_middleware(
     ApiKeyMiddleware,
-    protected_prefixes=("/driver",),                            # what to protect in prod
+    protected_prefixes=("/driver",),
     allow_prefixes=("/__meta", "/__debug", "/docs", "/redoc", "/openapi.json", "/skips/__smoke"),
-    hide_as_404=False,                                          # 401 is clearer while we debug
+    hide_as_404=False,  # show 401 if missing key on protected routes
 )
 
-# Meta for frontend pickers
+# Small meta for UI pickers/legends
 @app.get("/meta/config")
 def meta_config():
     return {
@@ -49,16 +49,15 @@ def meta_config():
 async def _startup() -> None:
     print("[startup] WMIS main online", flush=True)
     print(f"[startup] DB_URL = {DB_URL}", flush=True)
-    # show a few routes in logs
     for r in app.routes:
         p = getattr(r, "path", "")
         if p:
             log.info("[ROUTE] %s", p)
 
-# include normal API bundle
+# Normal API bundle
 app.include_router(api_router)
 
-# --- Health & DB debug -------------------------------------------------
+# Health + DB helpers
 @app.get("/__health", tags=["__debug"])
 async def health():
     try:
@@ -94,7 +93,7 @@ def debug_db_url():
         nl = user + "@" + host
     return {"scheme": u.scheme, "netloc": nl, "query": u.query}
 
-# --- GUARANTEED probes (no external imports) --------------------------
+# Guaranteed probes (public)
 @app.get("/__meta/ping")
 def __meta_ping() -> Dict[str, Any]:
     return {"ok": True}
@@ -135,9 +134,9 @@ async def __skips_smoke() -> Dict[str, Any]:
         res["error"] = f"{type(e).__name__}: {e}"
     return res
 
-# --- ensure /skips router is present even if dynamic include hiccups ---
+# Ensure /skips mounts even if dynamic include hiccups
 try:
     from app.api.skips import router as skips_router
-    app.include_router(skips_router, prefix="/skips", tags=["skips"])
+    app.include_router(skips_router, prefix="/skips", tags=["skips"])  
 except Exception as e:
     print(f"[main] couldn't mount app.api.skips: {e}", flush=True)
