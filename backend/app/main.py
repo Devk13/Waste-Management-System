@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import asyncio
 import logging
+from typing import List, Dict, Any
 # create tables for these model groups
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
@@ -15,6 +16,8 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from app.middleware_apikey import ApiKeyMiddleware
 from app.api.routes import api_router
+from fastapi.routing import APIRoute
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.config import (
     settings,
@@ -30,7 +33,6 @@ from urllib.parse import urlparse
 from app.db import DB_URL
 
 app = FastAPI(title="WMIS API")
-app.include_router(api_router)
 
 try:
     from app.core.config import settings  # optional
@@ -127,6 +129,8 @@ async def _startup() -> None:
     except Exception as e:
         log.warning("[bootstrap] WARN: engine.begin() failed: %s", e)
 
+app.include_router(api_router)
+
 # ---------------------------------------------------------------------
 # Tiny DB check to verify connectivity/migrations (used during smoke tests)
 # ---------------------------------------------------------------------
@@ -187,18 +191,53 @@ if debug_router is not None:
 if skips_smoke_router is not None:
     app.include_router(skips_smoke_router, prefix="/skips")
 
-# --- Fingerprint endpoints to prove which build is running ---------------
+# ---------- Guaranteed debug endpoints (no external imports) ----------
 @app.get("/__meta/ping")
-def meta_ping():
+def __meta_ping() -> Dict[str, Any]:
     return {"ok": True}
 
 @app.get("/__meta/build")
-def meta_build():
+def __meta_build() -> Dict[str, Any]:
     return {
         "env": os.getenv("ENV", "dev"),
         "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")),
         "app_dir": "backend",
     }
+
+@app.get("/__debug/routes")
+def __debug_routes() -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in app.routes:
+        if isinstance(r, APIRoute):
+            out.append({"path": r.path, "methods": sorted(list(r.methods or [])), "name": r.name})
+    return out
+
+# ---------- DB-only smoke (avoids model imports/cycles) ---------------
+@app.get("/skips/__smoke")
+async def __skips_smoke() -> Dict[str, Any]:
+    result: Dict[str, Any] = {"ok": True}
+    try:
+        async with engine.begin() as conn:  
+            async def c(tbl: str) -> int:
+                # Why raw SQL: avoids importing models (SkipPlacement import errors on Render)
+                try:
+                    row = await conn.execute(text(f"select count(*) from {tbl}"))
+                    return int(list(row)[0][0])
+                except Exception:
+                    return -1  # table missing or not yet migrated
+            result.update({
+                "skips": await c("skips"),
+                "placements": await c("skip_placements"),
+                "movements": await c("movements"),
+                "weights": await c("weights"),
+                "transfers": await c("transfers"),
+                "wtns": await c("wtns"),
+            })
+    except Exception as e:
+        # single-line error for logs
+        result["ok"] = False
+        result["error"] = f"{type(e).__name__}: {e}"
+    return result
 
 # --- TEMP: force-mount admin skips demo so it appears in /docs right away
 try:
