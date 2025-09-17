@@ -2,26 +2,24 @@
 from __future__ import annotations
 import os, logging
 from typing import Any, Dict, List
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.api.routes import api_router
 from app.db import DB_URL, engine
 from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets
 
-# Optional: API key middleware that allows public probes/docs
+# middleware: allow public probes/docs
 try:
     from app.middleware_apikey import ApiKeyMiddleware
-except Exception:  # keep app booting if file missing
-    class ApiKeyMiddleware:  # minimal no-op
-        def __init__(self, app, **_): pass
+except Exception:  # no-op if file missing
+    class ApiKeyMiddleware:
+        def __init__(self, app, **_): ...
 
 log = logging.getLogger("uvicorn")
-
-# ---- ONE app instance (important) ----
 app = FastAPI(title="Waste Management System")
 
 # CORS
@@ -33,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Protect only /driver in prod; allow probes/docs without key
+# API key: protect /driver in prod; allow probes/docs/smoke
 app.add_middleware(
     ApiKeyMiddleware,
     protected_prefixes=("/driver",),
@@ -41,7 +39,7 @@ app.add_middleware(
     hide_as_404=False,
 )
 
-# Small meta for UI
+# meta for UI
 @app.get("/meta/config")
 def meta_config():
     return {
@@ -53,14 +51,21 @@ def meta_config():
 async def _startup() -> None:
     print("[startup] WMIS main online", flush=True)
     print(f"[startup] DB_URL = {DB_URL}", flush=True)
+    # try mounting the main API bundle now (so a bad import doesn't kill boot)
+    try:
+        from app.api.routes import api_router
+        app.include_router(api_router)
+        print("[startup] included api_router", flush=True)
+    except Exception as e:
+        print(f"[startup] WARN: couldn't include api_router: {type(e).__name__}: {e}", flush=True)
+
+    # log known routes
     for r in app.routes:
         p = getattr(r, "path", "")
-        if p: log.info("[ROUTE] %s", p)
+        if p:
+            log.info("[ROUTE] %s", p)
 
-# normal API bundle
-app.include_router(api_router)
-
-# --- Health & DB debug ---
+# ---- Health & DB debug ------------------------------------------------
 @app.get("/__health", tags=["__debug"])
 async def health():
     try:
@@ -88,13 +93,12 @@ async def debug_db():
 @app.get("/__debug/db_url")
 def debug_db_url():
     from urllib.parse import urlparse
-    u = urlparse(DB_URL)
-    nl = u.netloc
+    u = urlparse(DB_URL); nl = u.netloc
     if "@" in nl and ":" in nl.split("@", 1)[0]:
         user, host = nl.split("@", 1); user = user.split(":")[0] + ":***"; nl = user + "@" + host
     return {"scheme": u.scheme, "netloc": nl, "query": u.query}
 
-# --- Guaranteed probes (public) ---
+# ---- Guaranteed probes (public) --------------------------------------
 @app.get("/__meta/ping")
 def __meta_ping() -> Dict[str, Any]: return {"ok": True}
 
@@ -117,8 +121,10 @@ async def __skips_smoke() -> Dict[str, Any]:
         async with engine.begin() as conn:
             async def count(tbl: str) -> int:
                 try:
-                    rows = await conn.execute(text(f"select count(*) from {tbl}")); return int(list(rows)[0][0])
-                except Exception: return -1
+                    rows = await conn.execute(text(f"select count(*) from {tbl}"))
+                    return int(list(rows)[0][0])
+                except Exception:
+                    return -1
             res.update({
                 "skips": await count("skips"),
                 "placements": await count("skip_placements"),
@@ -131,9 +137,9 @@ async def __skips_smoke() -> Dict[str, Any]:
         res["ok"] = False; res["error"] = f"{type(e).__name__}: {e}"
     return res
 
-# Ensure /skips mounts even if dynamic include hiccups
+# ---- Try to hard-mount /skips router; ignore if it still errors -------
 try:
     from app.api.skips import router as skips_router
     app.include_router(skips_router, prefix="/skips", tags=["skips"])
 except Exception as e:
-    print(f"[main] couldn't mount app.api.skips: {e}", flush=True)
+    print(f"[main] WARN: couldn't mount app.api.skips: {type(e).__name__}: {e}", flush=True)

@@ -1,26 +1,22 @@
 from __future__ import annotations
 import uuid
 from typing import Any, Optional
-import os
-from fastapi import APIRouter                                               #delete
+import os                                               
 from fastapi import APIRouter, Depends, Header, HTTPException, status       #delete
 from pydantic import BaseModel                                              #delete
-from sqlalchemy import select                                               #delete
 from sqlalchemy.ext.asyncio import AsyncSession                             #delete
 from app.core.config import settings                                        #delete
 from app.models import models as m                                          #delete
 from app.models.models import Skip
-from app.core.config import settings
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from fastapi import Header
-
+from app.models.skip import Skip, SkipStatus
+from app.models.models import SkipPlacement
 from app.api.deps import get_db
 
 from app.api.deps import get_current_user
-from app.core.config import settings
 
-from app.models.skip import Skip
 from app.models.labels import SkipAsset, SkipAssetKind
 from app.schemas.skip import SkipCreate, SkipOut
 from app.services.qr_labels import LabelMeta, make_qr_png, make_three_up_pdf
