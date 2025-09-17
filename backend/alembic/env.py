@@ -28,12 +28,12 @@ if config.config_file_name is not None:
 # Load app metadata & DB URL
 # ------------------------------------------------------------
 # We import the app's DB normalizer and models so autogenerate can see them.
-from app.db import DB_URL  # type: ignore
+from app.db import DB_URL
 
 # Import models to register tables with SQLAlchemy's registry
-from app.models.skip import Base as SkipBase  # type: ignore
-from app.models.labels import Base as LabelsBase  # type: ignore
-from app.models.driver import Base as DriverBase  # type: ignore
+from app.models.skip import Base as SkipBase  
+from app.models.labels import Base as LabelsBase  
+from app.models.driver import Base as DriverBase 
 
 from sqlalchemy import MetaData
 config.set_main_option("sqlalchemy.url", str(DB_URL))

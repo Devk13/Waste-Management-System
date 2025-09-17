@@ -1,9 +1,7 @@
 # backend/app/main.py
 from __future__ import annotations
-import os
-import logging
+import os, logging
 from typing import Any, Dict, List
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
@@ -13,11 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from app.api.routes import api_router
 from app.db import DB_URL, engine
 from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets
-from app.middleware_apikey import ApiKeyMiddleware
+
+# Optional: API key middleware that allows public probes/docs
+try:
+    from app.middleware_apikey import ApiKeyMiddleware
+except Exception:  # keep app booting if file missing
+    class ApiKeyMiddleware:  # minimal no-op
+        def __init__(self, app, **_): pass
 
 log = logging.getLogger("uvicorn")
 
-# One app only
+# ---- ONE app instance (important) ----
 app = FastAPI(title="Waste Management System")
 
 # CORS
@@ -29,15 +33,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API-key: protect driver*, allow public probes/docs
+# Protect only /driver in prod; allow probes/docs without key
 app.add_middleware(
     ApiKeyMiddleware,
     protected_prefixes=("/driver",),
     allow_prefixes=("/__meta", "/__debug", "/docs", "/redoc", "/openapi.json", "/skips/__smoke"),
-    hide_as_404=False,  # show 401 if missing key on protected routes
+    hide_as_404=False,
 )
 
-# Small meta for UI pickers/legends
+# Small meta for UI
 @app.get("/meta/config")
 def meta_config():
     return {
@@ -51,13 +55,12 @@ async def _startup() -> None:
     print(f"[startup] DB_URL = {DB_URL}", flush=True)
     for r in app.routes:
         p = getattr(r, "path", "")
-        if p:
-            log.info("[ROUTE] %s", p)
+        if p: log.info("[ROUTE] %s", p)
 
-# Normal API bundle
+# normal API bundle
 app.include_router(api_router)
 
-# Health + DB helpers
+# --- Health & DB debug ---
 @app.get("/__health", tags=["__debug"])
 async def health():
     try:
@@ -88,15 +91,12 @@ def debug_db_url():
     u = urlparse(DB_URL)
     nl = u.netloc
     if "@" in nl and ":" in nl.split("@", 1)[0]:
-        user, host = nl.split("@", 1)
-        user = user.split(":")[0] + ":***"
-        nl = user + "@" + host
+        user, host = nl.split("@", 1); user = user.split(":")[0] + ":***"; nl = user + "@" + host
     return {"scheme": u.scheme, "netloc": nl, "query": u.query}
 
-# Guaranteed probes (public)
+# --- Guaranteed probes (public) ---
 @app.get("/__meta/ping")
-def __meta_ping() -> Dict[str, Any]:
-    return {"ok": True}
+def __meta_ping() -> Dict[str, Any]: return {"ok": True}
 
 @app.get("/__meta/build")
 def __meta_build() -> Dict[str, Any]:
@@ -114,13 +114,11 @@ def __debug_routes() -> List[Dict[str, Any]]:
 async def __skips_smoke() -> Dict[str, Any]:
     res: Dict[str, Any] = {"ok": True}
     try:
-        async with engine.begin() as conn:  
+        async with engine.begin() as conn:
             async def count(tbl: str) -> int:
                 try:
-                    rows = await conn.execute(text(f"select count(*) from {tbl}"))
-                    return int(list(rows)[0][0])
-                except Exception:
-                    return -1
+                    rows = await conn.execute(text(f"select count(*) from {tbl}")); return int(list(rows)[0][0])
+                except Exception: return -1
             res.update({
                 "skips": await count("skips"),
                 "placements": await count("skip_placements"),
@@ -130,13 +128,12 @@ async def __skips_smoke() -> Dict[str, Any]:
                 "wtns": await count("wtns"),
             })
     except Exception as e:
-        res["ok"] = False
-        res["error"] = f"{type(e).__name__}: {e}"
+        res["ok"] = False; res["error"] = f"{type(e).__name__}: {e}"
     return res
 
 # Ensure /skips mounts even if dynamic include hiccups
 try:
     from app.api.skips import router as skips_router
-    app.include_router(skips_router, prefix="/skips", tags=["skips"])  
+    app.include_router(skips_router, prefix="/skips", tags=["skips"])
 except Exception as e:
     print(f"[main] couldn't mount app.api.skips: {e}", flush=True)
