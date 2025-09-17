@@ -1,20 +1,25 @@
-// path: frontend/src/App.tsx
 import React from "react";
+import { HashRouter, Routes, Route, Link, Navigate } from "react-router-dom";
+import DriverMe from "./pages/DriverMe";
 import LabelsAdmin from "./pages/LabelsAdmin";
+import WtnAdmin from "./pages/WtnAdmin";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-slate-100">
-      <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between p-4">
-          <h1 className="text-lg font-semibold">WMMS • Admin</h1>
-          <div className="text-xs text-slate-500">Create QR Labels</div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl p-4">
-        <LabelsAdmin />
-      </main>
-    </div>
+    // HashRouter avoids server-side route config on static hosts (e.g., Render static)
+    <HashRouter>
+      <nav style={{ padding: 12, borderBottom: "1px solid #e5e7eb", display: "flex", gap: 12 }}>
+        <Link to="/">Driver</Link>
+        <Link to="/admin/labels">Labels</Link>
+        <Link to="/admin/wtn">WTN</Link>
+      </nav>
+      <Routes>
+        <Route path="/" element={<DriverMe />} />
+        <Route path="/admin/labels" element={<LabelsAdmin />} />
+        <Route path="/admin/wtn" element={<WtnAdmin />} />
+        {/* fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </HashRouter>
   );
 }

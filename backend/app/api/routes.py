@@ -48,6 +48,22 @@ _safe_include("/skips", "app.api.skips", "skips")
 _safe_include("/skips", "app.api.skips_smoke", "skips")
 _safe_include("", "app.api.debug_routes", "__debug")
 
+# admin + assignments
+_safe_include("", "app.api.admin_contractors", "admin:contractors")
+_safe_include("", "app.api.admin_vehicles", "admin:vehicles")
+_safe_include("", "app.api.admin_drivers", "admin:drivers")
+_safe_include("", "app.api.admin_bin_assignments", "admin:bins")
+
+# wtn
+_safe_include("", "app.api.wtn", "wtn")
+
+# debug helpers if you already have them
+try:
+    _safe_include("/skips", "app.api.skips_smoke", "skips")
+    _safe_include("", "app.api.debug_routes", "__debug")
+except Exception:
+    pass
+
 # --- admin/demo routes gate (env flag)
 # accepts: true/1/yes (case-insensitive). Reads from settings, falls back to raw env.
 _EXPOSE = str(getattr(settings, "EXPOSE_ADMIN_ROUTES", os.getenv("EXPOSE_ADMIN_ROUTES", "false"))).lower() in ("1", "true", "yes")

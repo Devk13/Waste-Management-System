@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -10,6 +11,11 @@ from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from collections.abc import AsyncGenerator
+from typing import Dict, Any
+from app.api.deps import get_db
+from app.models.skip import Skip, SkipPlacement
+from app.models.wtn import WasteTransferNote
+from app.services.wtn import build_ctx_form
 
 # use shared async engine
 from ..db import engine
@@ -127,6 +133,56 @@ async def _get_skip_by_qr(db: AsyncSession, qr: str) -> Skip:
     if not skip:
         raise HTTPException(404, "skip not found")
     return skip
+
+async def _create_wtn_for_collect_full(
+    db: AsyncSession,
+    *,
+    skip: Skip,
+    driver_name: str,
+    vehicle_reg: str | None,
+    dest_name: str,
+    dest_type: str,
+    gross_kg: float,
+    tare_kg: float,
+) -> Dict[str, Any]:
+    # latest placement for originator location (best-effort)
+    res = await db.execute(
+        select(SkipPlacement).where(SkipPlacement.skip_id == skip.id).order_by(SkipPlacement.when.desc())
+    )
+    last_placement = res.scalars().first()
+    origin_loc = getattr(last_placement, "zone_id", "") or getattr(last_placement, "zone_name", "") or ""
+    net = max(0.0, float(gross_kg) - float(tare_kg))
+
+    payload: Dict[str, Any] = {
+        "wtn_id": None,
+        "wtn_number": None,
+        "part1": {
+            "quantity": f"{net:g} kg",
+            "waste_type": dest_type,
+            "originator_location": origin_loc,
+            "destination_location": dest_name,
+        },
+        "part2": {
+            "to_location": dest_name,
+            "company_name": os.getenv("CARRIER_COMPANY", "Carrier"),
+            "name": driver_name,
+            "plate_no": vehicle_reg or "",
+        },
+        "part3": {
+            "quantity": f"{net:g} kg",
+            "treatment": dest_type,
+        },
+    }
+
+    row = WasteTransferNote(number=None, payload_json=json.dumps(payload))
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+
+    payload["wtn_id"] = row.id
+    row.payload_json = json.dumps(payload)
+    await db.commit()
+    return {"wtn_id": row.id, "wtn_pdf_url": f"/wtn/{row.id}.pdf"}
 
 
 # -------------------- Endpoints ---------------------------------------------
@@ -284,18 +340,24 @@ async def collect_full(payload: CollectFullIn, db: AsyncSession = Depends(get_db
     db.add(tr)
     await db.flush()  # tr.id
 
-    db.add(
-        WasteTransferNote(
-            transfer_id=tr.id,
-            description=f"Waste from skip {skip.qr_code} -> {payload.destination_type}",
-            quantity_kg=net,
-            destination_name=payload.destination_name,
-        )
+    wtn = await _create_wtn_for_collect_full(
+        db,
+        skip=skip,
+        driver_name=payload.driver_name,
+        vehicle_reg=getattr(payload, "vehicle_reg", None) or "",
+        dest_name=payload.destination_name,
+        dest_type=payload.destination_type,
+        gross_kg=payload.gross_kg,
+        tare_kg=payload.tare_kg,
     )
-
-    await db.commit()
-    return CollectFullOut(movement_id=mv.id, weight_net_kg=net, transfer_id=tr.id, wtn_id=tr.id)
-
+    # existing response + WTN references
+    return {
+        "movement_id": str(Movement.id),
+        "weight_net_kg": Weight.net_kg,         
+        "transfer_id": str(Transfer.id),
+        "wtn_id": wtn["wtn_id"],
+        "wtn_pdf_url": f"/wtn/{wtn['wtn_id']}.pdf",
+    }
 
 @router.post("/return-empty", response_model=MovementOut, status_code=status.HTTP_201_CREATED)
 async def return_empty(payload: ReturnEmptyIn, db: AsyncSession = Depends(get_db)):

@@ -1,21 +1,16 @@
-// path: frontend/src/main.tsx
-import React from 'react'
-import { createRoot } from 'react-dom/client'
-import App from './App'
-import './styles.css'
-import { ToastProvider } from './components/Toast'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import './styles.css';
 
-// Optional: register a very small service worker so the shell works offline
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
-  })
-}
+// IMPORTANT: enable WTN auto-open & banner
+import './wtnHook';
+import WtnPrompt from './components/WtnPrompt';
 
-createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ToastProvider>
-      <App />
-    </ToastProvider>
-  </React.StrictMode>
-)
+    <App />
+    {/* Renders globally so any page benefits */}
+    <WtnPrompt />
+  </React.StrictMode>,
+);
