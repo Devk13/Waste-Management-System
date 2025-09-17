@@ -27,7 +27,7 @@ from app.api import routes as api_routes
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
 from urllib.parse import urlparse
-from app.db import engine, DB_URL
+from app.db import DB_URL
 
 app = FastAPI(title="WMIS API")
 app.include_router(api_router)
@@ -74,10 +74,23 @@ def _is_dev() -> bool:
     env = os.getenv("ENV") or (getattr(settings, "ENV", None) if settings else None) or "dev"
     return str(env).lower() == "dev"
 
+# WHY: fallback hard-mounts so debug/smoke exist even if dynamic import fails
+try:
+    from app.api.debug_routes import router as debug_router
+except Exception:  # keep app booting even if file missing
+    debug_router = None  # type: ignore
+
+try:
+    from app.api.skips_smoke import router as skips_smoke_router
+except Exception:
+    skips_smoke_router = None  # type: ignore
+
 # --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
 
 @app.on_event("startup")
 async def _startup() -> None:
+    # why: quick visibility of DB URL driver in logs
+    print(f"[db] Using DB_URL = {DB_URL}", flush=True)
     # 1) Show the DB URL & mounted routes (super helpful on Render/local)
     log.info("[db] Using DB_URL = %r", DB_URL)
     try:
@@ -168,6 +181,21 @@ def debug_db_url():
         "query": u.query,            # if present, should contain ssl=true (NOT sslmode=...)
     }
 
+# Fallback hard mounts (no-ops if already included)
+if debug_router is not None:
+    app.include_router(debug_router)
+if skips_smoke_router is not None:
+    app.include_router(skips_smoke_router, prefix="/skips")
+
+# Simple build probe to confirm the deployed code revision
+@app.get("/__meta/ping")
+def meta_ping() -> dict:
+    import os
+    return {
+        "ok": True,
+        "env": os.getenv("ENV", "dev"),
+        "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")),  # set by Render if configured
+    }
 
 # --- TEMP: force-mount admin skips demo so it appears in /docs right away
 try:

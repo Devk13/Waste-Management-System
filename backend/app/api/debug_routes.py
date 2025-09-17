@@ -1,4 +1,3 @@
-# path: backend/app/api/debug_routes.py
 from __future__ import annotations
 from typing import Any, Dict, List
 from fastapi import APIRouter, Request
@@ -8,6 +7,7 @@ router = APIRouter(tags=["__debug"])
 
 @router.get("/__debug/routes")
 def list_routes(request: Request) -> List[Dict[str, Any]]:
+    # why: enumerate live mounted routes
     out: List[Dict[str, Any]] = []
     for r in request.app.routes:
         if isinstance(r, APIRoute):
@@ -16,6 +16,7 @@ def list_routes(request: Request) -> List[Dict[str, Any]]:
 
 @router.get("/__debug/mounts")
 def list_mounts() -> List[Dict[str, Any]]:
+    # why: show results from dynamic mounting (if available)
     try:
         from app.api import routes as routes_mod
         return getattr(routes_mod, "__mount_report__", [])
