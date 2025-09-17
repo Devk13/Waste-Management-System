@@ -7,7 +7,7 @@ from app.api.deps import get_db
 
 # why: make this endpoint resilient even if models evolve
 try:
-    from app.models.skip import Skip, SkipPlacement, SkipMovement
+    from app.models import Skip, SkipPlacement, SkipMovement
 except Exception:
     Skip = SkipPlacement = SkipMovement = None  # type: ignore
 

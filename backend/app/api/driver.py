@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from collections.abc import AsyncGenerator
 from typing import Dict, Any
 from app.api.deps import get_db
-from app.models.skip import Skip, SkipPlacement
+from app.models import Skip, SkipPlacement
 from app.models.wtn import WasteTransferNote
 from app.services.wtn import build_ctx_form
 

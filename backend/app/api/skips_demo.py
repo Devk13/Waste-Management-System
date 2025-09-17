@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.api.deps import get_db # AsyncSession provider
-from app.models.skip import Skip, SkipStatus
+from app.models import Skip, SkipStatus
 
 router = APIRouter(prefix="/admin/skips", tags=["admin-skips"]) # hidden behind X-Admin-Key
 
