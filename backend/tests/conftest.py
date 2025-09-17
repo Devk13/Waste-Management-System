@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.main import app as fastapi_app
-from app.db import Base, get_session
+from app.db import Base
+from app.api.deps import get_db
 
 # Ensure models are registered on metadata
 import importlib
@@ -52,7 +53,7 @@ async def client(engine_fixture) -> AsyncGenerator[AsyncClient, None]:
         async with SessionLocal() as s:
             yield s
 
-    fastapi_app.dependency_overrides[get_session] = override_get_session
+    fastapi_app.dependency_overrides[get_db] = override_get_session
 
     # httpx>=0.24 removed AsyncClient(app=...). Use ASGITransport instead.
     transport = ASGITransport(app=fastapi_app)

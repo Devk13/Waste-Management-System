@@ -1,11 +1,13 @@
 # path: backend/app/api/routes.py
 from __future__ import annotations
-
+import logging
 import os
 from importlib import import_module
 from fastapi import APIRouter
 from app.core.config import settings
 
+log = logging.getLogger(__name__)
+api_router = APIRouter()
 router = APIRouter()
 print("[routes] boot", flush=True)  # proves routes.py imported
 
@@ -24,6 +26,27 @@ def _try_include(module_path: str, prefix: str = "", tags: list[str] | None = No
         print(f"[routes] mounted {module_path}", flush=True)
     except Exception as e:
         print(f"[routes] skipping {module_path}: {e}", flush=True)
+
+def _safe_include(prefix: str, import_path: str, tag: str | None = None) -> None:
+    """Guard router imports so optional modules don't crash startup."""
+    try:
+        module = __import__(import_path, fromlist=["router"])
+        kwargs = {"prefix": prefix}
+        if tag:
+            kwargs["tags"] = [tag]
+        api_router.include_router(module.router, **kwargs)
+        log.info("Mounted %s at %s", import_path, prefix)
+    except Exception as exc:  # pragma: no cover
+        log.warning("Skipped %s at %s: %s", import_path, prefix, exc)
+
+
+# Core routers already in your app
+_safe_include("/driver", "app.api.driver", "driver")
+_safe_include("/skips", "app.api.skips", "skips")
+
+# Smoke/debug helpers (safe to include always)
+_safe_include("/skips", "app.api.skips_smoke", "skips")
+_safe_include("", "app.api.debug_routes", "__debug")
 
 # --- admin/demo routes gate (env flag)
 # accepts: true/1/yes (case-insensitive). Reads from settings, falls back to raw env.

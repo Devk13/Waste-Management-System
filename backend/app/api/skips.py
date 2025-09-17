@@ -8,19 +8,18 @@ from pydantic import BaseModel                                              #del
 from sqlalchemy import select                                               #delete
 from sqlalchemy.ext.asyncio import AsyncSession                             #delete
 from app.core.config import settings                                        #delete
-from app.db import get_session                                              #delete
 from app.models import models as m                                          #delete
 from app.models.models import Skip
 from app.core.config import settings
-from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import Header
 
+from app.api.deps import get_db
+
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.db import get_session
+
 from app.models.skip import Skip
 from app.models.labels import SkipAsset, SkipAssetKind
 from app.schemas.skip import SkipCreate, SkipOut
@@ -59,7 +58,7 @@ class SeedIn(BaseModel):
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_db),
     _: None = Depends(_admin_key_ok),  # authentication guard
 ):
     try:
@@ -98,7 +97,7 @@ def _qr_deeplink(code: str) -> str:
 @router.post("", response_model=SkipOut, status_code=201)
 async def create_skip(
     payload: SkipCreate,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_db),
     user: Any = Depends(get_current_user),
 ):
     # Admin-only
@@ -186,7 +185,7 @@ async def create_skip(
 @router.get("/{skip_id}/labels.pdf")
 async def get_skip_labels_pdf(
     skip_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_db),
     user: Any = Depends(get_current_user),
 ):
     if getattr(user, "role", None) != "admin":
@@ -210,7 +209,7 @@ async def get_skip_labels_pdf(
 async def get_skip_label_png(
     skip_id: uuid.UUID,
     idx: int,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_db),
     user: Any = Depends(get_current_user),
 ):
     if getattr(user, "role", None) != "admin":

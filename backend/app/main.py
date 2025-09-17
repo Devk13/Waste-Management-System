@@ -1,10 +1,11 @@
 # path: backend/app/main.py
 from __future__ import annotations
-
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import asyncio
+import logging
 # create tables for these model groups
 from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
@@ -13,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError  # optional, we’ll still catch Exce
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from app.middleware_apikey import ApiKeyMiddleware
-
+from app.api.routes import api_router
 
 from app.core.config import (
     settings,
@@ -30,6 +31,14 @@ from app.db import engine, DB_URL
 
 app = FastAPI(title="WMIS API")
 
+try:
+    from app.core.config import settings  # optional
+except Exception:
+    settings = None  # type: ignore
+
+log = logging.getLogger("uvicorn")
+app = FastAPI(title="Waste Management System")
+app.include_router(api_router)
 # ---------------------------------------------------------------------
 # CORS (single block)
 # ---------------------------------------------------------------------
@@ -60,46 +69,63 @@ def meta_config():
         },
     }
 
+def _is_dev() -> bool:
+    """True when ENV=dev (env var or settings), else False."""
+    env = os.getenv("ENV") or (getattr(settings, "ENV", None) if settings else None) or "dev"
+    return str(env).lower() == "dev"
+
 # --- create tables once at startup (quick bootstrap; replace with Alembic later) ---
 
-
 @app.on_event("startup")
-async def _bootstrap_db() -> None:
-    # skip metadata.create_all in non-dev to avoid conflicts with Alembic on Render
-    if str(getattr(settings, "ENV", "dev")).lower() != "dev":
-        print("[bootstrap] skip create_all in non-dev")
+async def _startup() -> None:
+    # 1) Show the DB URL & mounted routes (super helpful on Render/local)
+    log.info("[db] Using DB_URL = %r", DB_URL)
+    try:
+        for r in app.routes:
+            p = getattr(r, "path", "")
+            m = ",".join(sorted(getattr(r, "methods", []) or []))
+            if p:
+                log.info("[ROUTE] %-10s %s", m, p)
+    except Exception as exc:
+        log.warning("Failed to enumerate routes: %s", exc)
+
+    # 2) DEV ONLY: quick local bootstrap (Alembic owns prod)
+    if not _is_dev():
+        log.info("[bootstrap] skip create_all in non-dev")
         return
 
-    # DEV ONLY: create tables for quick local runs
     try:
         from app.models.skip import Base as SkipBase
         from app.models.labels import Base as LabelsBase
         from app.models.driver import Base as DriverBase
-        from app.db import engine
 
-        groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase)]
+        groups = [
+            ("skips", SkipBase),
+            ("labels", LabelsBase),
+            ("driver", DriverBase),
+        ]
         async with engine.begin() as conn:
             for name, base in groups:
                 try:
                     await conn.run_sync(base.metadata.create_all)
-                    print(f"[bootstrap] ensured tables for {name}", flush=True)
+                    log.info("[bootstrap] ensured tables for %s", name)
                 except Exception as e:
-                    print(f"[bootstrap] WARN: create_all({name}) failed: {e}", flush=True)
+                    log.warning("[bootstrap] WARN: create_all(%s) failed: %s", name, e)
     except Exception as e:
-        print(f"[bootstrap] WARN: engine.begin() failed: {e}", flush=True)
-
+        log.warning("[bootstrap] WARN: engine.begin() failed: %s", e)
 
 # ---------------------------------------------------------------------
 # Tiny DB check to verify connectivity/migrations (used during smoke tests)
 # ---------------------------------------------------------------------
-@app.get("/__health")
+@app.get("/__health", tags=["__debug"])
 async def health():
+    """DB connectivity check used by smoke tests and Render health."""
     try:
         async with engine.begin() as conn:
             await conn.execute(text("select 1"))
         return {"ok": True}
     except Exception as e:
-        # single line reason for Render logs/clients
+        # single-line reason for logs/clients
         raise HTTPException(status_code=500, detail=f"db ping failed: {type(e).__name__}: {e}")
 
 @app.get("/__debug/db")

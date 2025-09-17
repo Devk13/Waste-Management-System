@@ -23,3 +23,27 @@ Thumbs.db
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Python env & caches
+.venv/
+venv/
+env/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local databases
+*.db
+backend/*.db
+backend/**/*.db
+
+# Node build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
