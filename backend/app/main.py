@@ -30,6 +30,7 @@ from urllib.parse import urlparse
 from app.db import engine, DB_URL
 
 app = FastAPI(title="WMIS API")
+app.include_router(api_router)
 
 try:
     from app.core.config import settings  # optional
@@ -38,7 +39,6 @@ except Exception:
 
 log = logging.getLogger("uvicorn")
 app = FastAPI(title="Waste Management System")
-app.include_router(api_router)
 # ---------------------------------------------------------------------
 # CORS (single block)
 # ---------------------------------------------------------------------
@@ -167,10 +167,7 @@ def debug_db_url():
         "netloc": netloc,
         "query": u.query,            # if present, should contain ssl=true (NOT sslmode=...)
     }
-# ---------------------------------------------------------------------
-# Mount all API routes AFTER app is created
-# ---------------------------------------------------------------------
-app.include_router(api_routes.router)
+
 
 # --- TEMP: force-mount admin skips demo so it appears in /docs right away
 try:
