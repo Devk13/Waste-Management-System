@@ -4,6 +4,7 @@ backend/.venv/
 *.pyc
 backend/.env
 backend/dev.db
+backend/node_modules/
 
 # Alembic caches (keep migration scripts)
 backend/.pytest_cache/
@@ -47,3 +48,5 @@ Thumbs.db
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+/package-lock.json
+/backend/package-lock.json
