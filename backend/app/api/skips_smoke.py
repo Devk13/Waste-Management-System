@@ -1,15 +1,30 @@
-from fastapi import APIRouter
-from datetime import datetime
-import os
+from __future__ import annotations
+from typing import Dict, Any
+from fastapi import APIRouter, Depends
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
-router = APIRouter()
+from app.api.deps import get_db
 
-@router.get("/__smoke", summary="Skips router smoke probe")
-async def skips_smoke():
-    # Why: proves /skips router is mounted without touching DB
-    return {
-        "ok": True,
-        "ts": datetime.utcnow().isoformat() + "Z",
-        "env": os.getenv("ENV", "dev"),
-        "note": "If you see this, /skips is mounted.",
-    }
+# tolerate missing tables gracefully
+try:
+    from app.models.skip import Skip, SkipPlacement, SkipMovement
+except Exception:  # minimal fallbacks so /__smoke never crashes
+    Skip = SkipPlacement = SkipMovement = None  # type: ignore
+
+router = APIRouter(tags=["skips"])
+
+@router.get("/__smoke")
+async def skips_smoke(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"ok": True}
+    try:
+        if Skip is not None:
+            out["skips"] = (await db.execute(select(func.count()).select_from(Skip))).scalar_one()
+        if SkipPlacement is not None:
+            out["placements"] = (await db.execute(select(func.count()).select_from(SkipPlacement))).scalar_one()
+        if SkipMovement is not None:
+            out["movements"] = (await db.execute(select(func.count()).select_from(SkipMovement))).scalar_one()
+    except Exception as e:
+        out["ok"] = False
+        out["error"] = f"{type(e).__name__}: {e}"
+    return out

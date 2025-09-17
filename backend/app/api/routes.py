@@ -32,8 +32,7 @@ def _safe_include(prefix: str, import_path: str, tag: str | None = None) -> None
     try:
         module = __import__(import_path, fromlist=["router"])
         kwargs = {"prefix": prefix}
-        if tag:
-            kwargs["tags"] = [tag]
+        if tag: kwargs["tags"] = [tag]
         api_router.include_router(module.router, **kwargs)
         log.info("Mounted %s at %s", import_path, prefix)
     except Exception as exc:  # pragma: no cover
@@ -47,6 +46,7 @@ _safe_include("/skips", "app.api.skips", "skips")
 # Smoke/debug helpers (safe to include always)
 _safe_include("/skips", "app.api.skips_smoke", "skips")
 _safe_include("", "app.api.debug_routes", "__debug")
+_safe_include("/driver/dev", "app.api.dev", "dev")
 
 # admin + assignments
 _safe_include("", "app.api.admin_contractors", "admin:contractors")
@@ -54,15 +54,10 @@ _safe_include("", "app.api.admin_vehicles", "admin:vehicles")
 _safe_include("", "app.api.admin_drivers", "admin:drivers")
 _safe_include("", "app.api.admin_bin_assignments", "admin:bins")
 
+_safe_include("", "app.api.driver_schedule", "driver:schedule")
+
 # wtn
 _safe_include("", "app.api.wtn", "wtn")
-
-# debug helpers if you already have them
-try:
-    _safe_include("/skips", "app.api.skips_smoke", "skips")
-    _safe_include("", "app.api.debug_routes", "__debug")
-except Exception:
-    pass
 
 # --- admin/demo routes gate (env flag)
 # accepts: true/1/yes (case-insensitive). Reads from settings, falls back to raw env.

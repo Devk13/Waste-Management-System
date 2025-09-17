@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Body, Query, HTTPException, status, Header
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from typing import Optional, Dict, Any
 from app.core.config import settings
 from sqlalchemy import select
 from app.api.deps import get_db
