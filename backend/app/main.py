@@ -91,8 +91,8 @@ except Exception:
 
 @app.on_event("startup")
 async def _startup() -> None:
-    # why: quick visibility of DB URL driver in logs
-    print(f"[db] Using DB_URL = {DB_URL}", flush=True)
+    print("[startup] WMIS main online", flush=True)
+    print(f"[startup] DB_URL = {DB_URL}", flush=True)
     # 1) Show the DB URL & mounted routes (super helpful on Render/local)
     log.info("[db] Using DB_URL = %r", DB_URL)
     try:
@@ -191,13 +191,16 @@ if debug_router is not None:
 if skips_smoke_router is not None:
     app.include_router(skips_smoke_router, prefix="/skips")
 
-# ---------- Guaranteed debug endpoints (no external imports) ----------
+# --- GUARANTEED probes (no external imports) --------------------------
+
 @app.get("/__meta/ping")
 def __meta_ping() -> Dict[str, Any]:
+    # why: simplest “is this build running?” check
     return {"ok": True}
 
 @app.get("/__meta/build")
 def __meta_build() -> Dict[str, Any]:
+    # why: fingerprint the running build on Render
     return {
         "env": os.getenv("ENV", "dev"),
         "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")),
@@ -206,38 +209,37 @@ def __meta_build() -> Dict[str, Any]:
 
 @app.get("/__debug/routes")
 def __debug_routes() -> List[Dict[str, Any]]:
+    # why: enumerate live routes even if other routers failed to mount
     out: List[Dict[str, Any]] = []
     for r in app.routes:
         if isinstance(r, APIRoute):
             out.append({"path": r.path, "methods": sorted(list(r.methods or [])), "name": r.name})
     return out
 
-# ---------- DB-only smoke (avoids model imports/cycles) ---------------
 @app.get("/skips/__smoke")
 async def __skips_smoke() -> Dict[str, Any]:
-    result: Dict[str, Any] = {"ok": True}
+    # why: raw SQL counts so model import issues cannot break smoke
+    res: Dict[str, Any] = {"ok": True}
     try:
-        async with engine.begin() as conn:  
-            async def c(tbl: str) -> int:
-                # Why raw SQL: avoids importing models (SkipPlacement import errors on Render)
+        async with engine.begin() as conn:             
+            async def count(tbl: str) -> int:
                 try:
-                    row = await conn.execute(text(f"select count(*) from {tbl}"))
-                    return int(list(row)[0][0])
+                    rows = await conn.execute(text(f"select count(*) from {tbl}"))
+                    return int(list(rows)[0][0])
                 except Exception:
-                    return -1  # table missing or not yet migrated
-            result.update({
-                "skips": await c("skips"),
-                "placements": await c("skip_placements"),
-                "movements": await c("movements"),
-                "weights": await c("weights"),
-                "transfers": await c("transfers"),
-                "wtns": await c("wtns"),
+                    return -1  # table missing or not migrated
+            res.update({
+                "skips": await count("skips"),
+                "placements": await count("skip_placements"),
+                "movements": await count("movements"),
+                "weights": await count("weights"),
+                "transfers": await count("transfers"),
+                "wtns": await count("wtns"),
             })
     except Exception as e:
-        # single-line error for logs
-        result["ok"] = False
-        result["error"] = f"{type(e).__name__}: {e}"
-    return result
+        res["ok"] = False
+        res["error"] = f"{type(e).__name__}: {e}"
+    return res
 
 # --- TEMP: force-mount admin skips demo so it appears in /docs right away
 try:
