@@ -1,8 +1,10 @@
-# path: backend/app/main.py
+# ======================================================================
+# file: backend/app/main.py  (clean, single app + public probes)
+# ======================================================================
 from __future__ import annotations
 import os
 import logging
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,15 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.api.routes import api_router
 from app.db import DB_URL, engine
-from app.core.config import (
-    settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets,
-)
+from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets
+from app.middleware_apikey import ApiKeyMiddleware
 
-# --- single FastAPI app instance ---
 log = logging.getLogger("uvicorn")
 app = FastAPI(title="Waste Management System")
 
-# --- CORS ---
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS_LIST or ["*"],
@@ -29,20 +29,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- API-key middleware: allow debug/meta/docs w/o key (why: ops probes) ---
-try:
-    from app.middleware_apikey import ApiKeyMiddleware
-    app.add_middleware(
-        ApiKeyMiddleware,
-        # allow-list paths that must be callable without API key
-        allow_prefixes=(
-            "/__meta", "/__debug", "/docs", "/redoc", "/openapi.json", "/skips/__smoke"
-        ),
-    )
-except Exception as e:
-    print(f"[startup] ApiKeyMiddleware not active: {e}", flush=True)
+# API key protection: allow debug/meta/docs & smoke without a key
+app.add_middleware(
+    ApiKeyMiddleware,
+    protected_prefixes=("/driver",),                            # what to protect in prod
+    allow_prefixes=("/__meta", "/__debug", "/docs", "/redoc", "/openapi.json", "/skips/__smoke"),
+    hide_as_404=False,                                          # 401 is clearer while we debug
+)
 
-# --- tiny meta for frontend pickers/legend ---
+# Meta for frontend pickers
 @app.get("/meta/config")
 def meta_config():
     return {
@@ -50,24 +45,20 @@ def meta_config():
         "skip": {"sizes": get_skip_size_presets(), "colors": SKIP_COLOR_SPEC},
     }
 
-# --- startup log + dev bootstrap (alembic owns prod) ---
 @app.on_event("startup")
 async def _startup() -> None:
     print("[startup] WMIS main online", flush=True)
     print(f"[startup] DB_URL = {DB_URL}", flush=True)
-    try:
-        for r in app.routes:
-            p = getattr(r, "path", "")
-            m = ",".join(sorted(getattr(r, "methods", []) or []))
-            if p:
-                log.info("[ROUTE] %-10s %s", m, p)
-    except Exception as exc:
-        log.warning("Failed to enumerate routes: %s", exc)
+    # show a few routes in logs
+    for r in app.routes:
+        p = getattr(r, "path", "")
+        if p:
+            log.info("[ROUTE] %s", p)
 
-# --- include normal API bundle ---
+# include normal API bundle
 app.include_router(api_router)
 
-# --- health/debug DB helpers used by smoke/Render ---
+# --- Health & DB debug -------------------------------------------------
 @app.get("/__health", tags=["__debug"])
 async def health():
     try:
@@ -81,10 +72,11 @@ async def health():
 async def debug_db():
     try:
         dialect = engine.dialect.name
-        if dialect.startswith("postgres"):
-            sql = text("select table_name from information_schema.tables where table_schema = current_schema() order by table_name")
-        else:
-            sql = text("select name as table_name from sqlite_master where type='table' order by name")
+        sql = text(
+            "select table_name from information_schema.tables where table_schema = current_schema() order by table_name"
+            if dialect.startswith("postgres") else
+            "select name as table_name from sqlite_master where type='table' order by name"
+        )
         async with engine.begin() as conn:
             rows = await conn.execute(sql)
             return {"dialect": dialect, "tables": [r[0] for r in rows.fetchall()]}
@@ -109,11 +101,7 @@ def __meta_ping() -> Dict[str, Any]:
 
 @app.get("/__meta/build")
 def __meta_build() -> Dict[str, Any]:
-    return {
-        "env": os.getenv("ENV", "dev"),
-        "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")),
-        "app_dir": "backend",
-    }
+    return {"env": os.getenv("ENV", "dev"), "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")), "app_dir": "backend"}
 
 @app.get("/__debug/routes")
 def __debug_routes() -> List[Dict[str, Any]]:
@@ -147,7 +135,7 @@ async def __skips_smoke() -> Dict[str, Any]:
         res["error"] = f"{type(e).__name__}: {e}"
     return res
 
-# --- force-mount /skips even if dynamic include stumbles ---------------
+# --- ensure /skips router is present even if dynamic include hiccups ---
 try:
     from app.api.skips import router as skips_router
     app.include_router(skips_router, prefix="/skips", tags=["skips"])
