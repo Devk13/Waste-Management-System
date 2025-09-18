@@ -1,6 +1,6 @@
 from __future__ import annotations
 import uuid
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 import os                                               
 from fastapi import APIRouter, Depends, Header, HTTPException, status       #delete
 from pydantic import BaseModel                                              #delete
@@ -11,7 +11,9 @@ from app.models.models import Skip
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from fastapi import Header
-from app.models import Skip, SkipStatus, SkipPlacement
+from app.models import Skip, SkipStatus
+if TYPE_CHECKING:
+    from app.models import SkipPlacement
 from app.api.deps import get_db
 
 from app.api.deps import get_current_user
