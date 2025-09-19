@@ -166,3 +166,51 @@ export async function adminCreateSkip(p: SkipCreateIn) {
     throw parseApiError(e);
   }
 }
+
+export type DriverMe = {
+  id: string;
+  name: string;
+  phone?: string;
+  license_no?: string;
+  active?: boolean;
+};
+
+export async function getDriverMe(): Promise<DriverMe> {
+  return { id: "drv-demo", name: "Demo Driver" };
+}
+
+export async function searchFacilities(_q: string): Promise<Array<{ id: string; name: string }>> {
+  return [{ id: "ECO_MRF", name: "ECO MRF" }];
+}
+export async function searchZones(_q: string): Promise<Array<{ id: string; name: string }>> {
+  return [
+    { id: "ZONE_A", name: "ZONE_A" },
+    { id: "ZONE_B", name: "ZONE_B" },
+    { id: "ZONE_C", name: "ZONE_C" },
+  ];
+}
+
+export async function dropAtFacility(p: {
+  skip_qr: string;
+  facility_name: string;
+  weight_source: string;
+  gross_kg?: number;
+  tare_kg?: number;
+  net_kg?: number;
+  driver_name: string;
+  vehicle_reg?: string;
+  site_id?: string;
+}) {
+  return await api.collectFull({
+    skip_qr: p.skip_qr,
+    destination_type: "TRANSFER",
+    destination_name: p.facility_name,
+    weight_source: p.weight_source,
+    gross_kg: p.gross_kg,
+    tare_kg: p.tare_kg,
+    net_kg: p.net_kg,
+    driver_name: p.driver_name,
+    vehicle_reg: p.vehicle_reg,
+    site_id: p.site_id,
+  });
+}
