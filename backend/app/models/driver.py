@@ -120,8 +120,11 @@ class DriverProfile(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
+DBPlacement = SkipPlacement
+
 __all__ = [
     "SkipPlacement",
+    "DBPlacement",
     "MovementType",
     "WeightSource",
     "DestinationType",

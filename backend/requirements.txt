@@ -11,3 +11,5 @@ httpx
 # label/QR generation used by the /skips flow
 qrcode[pil]
 reportlab
+
+weasyprint>=61     # Enable PDF

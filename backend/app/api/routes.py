@@ -1,115 +1,101 @@
 # path: backend/app/api/routes.py
 from __future__ import annotations
-import logging
+
 import os
+import logging
 from importlib import import_module
-from typing import List, Dict, Any, Tuple
-from fastapi import APIRouter
-from app.core.config import settings
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Request, Body, Depends, Header, HTTPException
+from pydantic import BaseModel
+
+try:
+    from app.core.config import settings  # type: ignore[attr-defined]
+except Exception:
+    class _S:
+        EXPOSE_ADMIN_ROUTES = False
+        ENV = "dev"
+        ADMIN_API_KEY = "super-temp-seed-key"
+    settings = _S()  # type: ignore
 
 log = logging.getLogger(__name__)
+
 api_router = APIRouter()
-router = APIRouter()
-print("[routes] boot", flush=True)  # proves routes.py imported
-
-# --- existing driver routes
-from .driver import router as driver_router
-router.include_router(driver_router, tags=["driver"])
-
-# (prefix, module_path, tag)
-MOUNTS: List[Tuple[str, str, str | None]] = [
-    ("/driver", "app.api.driver", "driver"),
-    ("/skips", "app.api.skips", "skips"),                 # <- main skips router
-    ("/skips", "app.api.skips_smoke", "skips"),           # <- smoke counts
-    ("/driver/dev", "app.api.dev", "dev"),                # <- ensure-skip
-    ("", "app.api.driver_schedule", "driver:schedule"),   # <- optional schedule
-    ("", "app.api.wtn", "wtn"),                           # <- WTN APIs
-    ("", "app.api.debug_routes", "__debug"),              # <- /__debug/*
-]
-
-# exportable report for /__debug/mounts
 __mount_report__: List[Dict[str, Any]] = []
 
-for prefix, modpath, tag in MOUNTS:
+def _safe_include(prefix: str, import_path: str, tag: Optional[str] = None) -> None:
     try:
-        mod = import_module(modpath)
-        kw = {"prefix": prefix}
-        if tag:
-            kw["tags"] = [tag]
-        api_router.include_router(mod.router, **kw)  # type: ignore[attr-defined]
-        __mount_report__.append({"module": modpath, "prefix": prefix, "ok": True})
-        log.info("Mounted %s at %s", modpath, prefix)
-    except Exception as e:
-        msg = f"{type(e).__name__}: {e}"
-        __mount_report__.append({"module": modpath, "prefix": prefix, "ok": False, "error": msg})
-        log.warning("Skipped %s at %s: %s", modpath, prefix, msg)
-
-__all__ = ["api_router", "__mount_report__"]
-
-# --- tiny helper to mount routers by module path (keeps startup resilient)
-def _try_include(module_path: str, prefix: str = "", tags: list[str] | None = None):
-    try:
-        mod = import_module(module_path)
-        r = getattr(mod, "router", None)
-        if r is None:
-            raise RuntimeError("module has no 'router'")
-        router.include_router(r, prefix=prefix, tags=tags or [])
-        print(f"[routes] mounted {module_path}", flush=True)
-    except Exception as e:
-        print(f"[routes] skipping {module_path}: {e}", flush=True)
-
-def _safe_include(prefix: str, import_path: str, tag: str | None = None) -> None:
-    """Guard router imports so optional modules don't crash startup."""
-    try:
-        module = __import__(import_path, fromlist=["router"])
+        module = import_module(import_path)
         kwargs = {"prefix": prefix}
-        if tag: kwargs["tags"] = [tag]
-        api_router.include_router(module.router, **kwargs)
+        if tag:
+            kwargs["tags"] = [tag]
+        api_router.include_router(getattr(module, "router"), **kwargs)  # type: ignore[attr-defined]
+        __mount_report__.append({"module": import_path, "prefix": prefix, "ok": True})
         log.info("Mounted %s at %s", import_path, prefix)
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:
+        __mount_report__.append({"module": import_path, "prefix": prefix, "ok": False, "error": str(exc)})
         log.warning("Skipped %s at %s: %s", import_path, prefix, exc)
 
+IS_PROD = str(getattr(settings, "ENV", "dev")).lower() == "prod"
+ADMIN_KEY = str(getattr(settings, "ADMIN_API_KEY", ""))
 
-# Core routers already in your app
+# --- admin gate: only enforced in prod ---------------------------------------
+def admin_gate(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    if not IS_PROD:
+        return
+    if not ADMIN_KEY or x_api_key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Admin key required")
+
+# --- Core routers (single pass) ----------------------------------------------
 _safe_include("/driver", "app.api.driver", "driver")
+if not IS_PROD:
+    _safe_include("/driver/dev", "app.api.dev", "dev")  # hidden in prod
 _safe_include("/skips", "app.api.skips", "skips")
-
-# Smoke/debug helpers (safe to include always)
 _safe_include("/skips", "app.api.skips_smoke", "skips")
-_safe_include("", "app.api.debug_routes", "__debug")
-_safe_include("/driver/dev", "app.api.dev", "dev")
-
-# admin + assignments
-_safe_include("", "app.api.admin_contractors", "admin:contractors")
-_safe_include("", "app.api.admin_vehicles", "admin:vehicles")
-_safe_include("", "app.api.admin_drivers", "admin:drivers")
-_safe_include("", "app.api.admin_bin_assignments", "admin:bins")
-
 _safe_include("", "app.api.driver_schedule", "driver:schedule")
-
-# wtn
 _safe_include("", "app.api.wtn", "wtn")
+_safe_include("", "app.api.meta", "__meta")
+_safe_include("", "app.api.wtn_debug", "__debug")
 
-# --- admin/demo routes gate (env flag)
-# accepts: true/1/yes (case-insensitive). Reads from settings, falls back to raw env.
-_EXPOSE = str(getattr(settings, "EXPOSE_ADMIN_ROUTES", os.getenv("EXPOSE_ADMIN_ROUTES", "false"))).lower() in ("1", "true", "yes")
-
-print(f"[routes] flag trace | env={os.getenv('EXPOSE_ADMIN_ROUTES')} "
-      f"| settings={getattr(settings, 'EXPOSE_ADMIN_ROUTES', None)} "
-      f"| resolved={_EXPOSE}", flush=True)
-
+# --- Admin routers (gated by env var) ----------------------------------------
+_EXPOSE = str(getattr(settings, "EXPOSE_ADMIN_ROUTES", os.getenv("EXPOSE_ADMIN_ROUTES", "false"))).lower() in {
+    "1", "true", "yes"
+}
 if _EXPOSE:
-    try:
-        from .skips_demo import router as admin_skips_router
-        # Give it an explicit tag so it appears as "admin-skips" in /docs
-        router.include_router(admin_skips_router, tags=["admin-skips"])
-        print("[routes] mounted admin skips demo", flush=True)
-    except Exception as e:
-        print(f"[routes] skipping admin skips demo: {e}", flush=True)
+    _safe_include("", "app.api.admin_contractors", "admin:contractors")
+    _safe_include("", "app.api.admin_vehicles", "admin:vehicles")
+    _safe_include("", "app.api.admin_drivers", "admin:drivers")
+    _safe_include("", "app.api.admin_bin_assignments", "admin:bins")
 else:
-    print("[routes] admin skips demo disabled", flush=True)
+    log.info("Admin routes disabled (EXPOSE_ADMIN_ROUTES=false)")
 
-# --- normal app routers
-_try_include("app.api.skips", prefix="/skips", tags=["skips"])
-# add more when ready...
-print("[routes] ready", flush=True)
+# --- Meta + Debug ------------------------------------------------------------
+@api_router.get("/_meta/ping", tags=["__meta"])
+async def meta_ping() -> Dict[str, str]:
+    return {"pong": "ok"}
+
+@api_router.get("/_debug/mounts", tags=["__debug"], dependencies=[Depends(admin_gate)])
+async def debug_mounts() -> List[Dict[str, Any]]:
+    return __mount_report__
+
+@api_router.get("/_debug/routes", tags=["__debug"], dependencies=[Depends(admin_gate)])
+async def debug_routes(request: Request) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in request.app.router.routes:
+        methods = sorted(getattr(r, "methods", []) or [])
+        out.append({"path": r.path, "name": getattr(r, "name", ""), "methods": methods})
+    return out
+
+# tolerant dev seed fallback (kept as before)
+class EnsureSkipResult(BaseModel):
+    skip_id: str = "DEV-SKIP-001"
+    note: str = "Seeded (dev only)"
+
+@api_router.api_route("/driver/dev/ensure-skip", methods=["GET", "POST"], tags=["dev"])
+async def ensure_skip_dev_fallback() -> EnsureSkipResult:
+    # If not mounted via app.api.dev, only expose in non-prod
+    if IS_PROD:
+        raise HTTPException(status_code=404, detail="Not found")
+    return EnsureSkipResult()
+
+__all__ = ["api_router", "__mount_report__"]

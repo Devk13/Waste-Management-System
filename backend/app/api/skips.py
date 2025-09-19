@@ -12,8 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from fastapi import Header
 from app.models import Skip, SkipStatus
-if TYPE_CHECKING:
-    from app.models import SkipPlacement
+from app.models import SkipPlacement as DBPlacement
 from app.api.deps import get_db
 
 from app.api.deps import get_current_user

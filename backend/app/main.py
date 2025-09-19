@@ -1,31 +1,35 @@
-# ======================================================================
-# file: backend/app/main.py   (add the /__debug/mounts endpoint)
-# ======================================================================
+# path: backend/app/main.py
 from __future__ import annotations
-import os
 import logging
-from typing import Any, Dict, List
+import os
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets
+from app.db import DB_URL, engine
+from app.api.routes import api_router
+from typing import Any, Dict, List
 from fastapi.routing import APIRoute
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
-from app.db import DB_URL, engine
-from app.core.config import settings, CORS_ORIGINS_LIST, SKIP_COLOR_SPEC, get_skip_size_presets
 
+# optional: no-op fallback if middleware file is missing
 try:
     from app.middleware_apikey import ApiKeyMiddleware
 except Exception:
-    class ApiKeyMiddleware:  # no-op in case file is missing
-        def __init__(self, app, **_): ...
+    class ApiKeyMiddleware:  # type: ignore
+        def __init__(self, app, **_): self.app = app
+        async def __call__(self, scope, receive, send): await self.app(scope, receive, send)
 
 log = logging.getLogger("uvicorn")
 
-app = FastAPI(title="Waste Management System")  # ensure only one app is created
+# 1) create app first
+app = FastAPI(title="Waste Management System")
 
+# 2) middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS_LIST or ["*"],
+    allow_origins=["*"],            # dev only; tighten in prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,8 +38,25 @@ app.add_middleware(
     ApiKeyMiddleware,
     protected_prefixes=("/driver",),
     allow_prefixes=("/__meta", "/__debug", "/docs", "/redoc", "/openapi.json", "/skips/__smoke"),
-    hide_as_404=False,
+    hide_403=False,
 )
+
+# 3) include routes AFTER app exists
+app.include_router(api_router)
+
+# 4) tiny health + debug
+@app.get("/__health")
+async def health():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute("select 1")
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, f"db ping failed: {type(e).__name__}: {e}")
+
+@app.get("/__meta/build")
+def build_meta():
+    return {"env": os.getenv("ENV", "dev"), "db_url": DB_URL}
 
 @app.get("/meta/config")
 def meta_config():
@@ -48,28 +69,61 @@ def meta_config():
 async def _startup() -> None:
     print("[startup] WMIS main online", flush=True)
     print(f"[startup] DB_URL = {DB_URL}", flush=True)
-    # Lazy include to avoid boot crashing if some router has a bad import
+
+    # include routers (kept lazy so a bad import doesn't crash boot)
     try:
         from app.api.routes import api_router
         app.include_router(api_router)
         print("[startup] included api_router", flush=True)
     except Exception as e:
         print(f"[startup] WARN: couldn't include api_router: {type(e).__name__}: {e}", flush=True)
-    for r in app.routes:
-        p = getattr(r, "path", "")
-        if p:
-            log.info("[ROUTE] %s", p)
+
+    # DEV bootstrap: create tables if running locally (ENV=dev)
+    env = (os.getenv("ENV") or getattr(settings, "ENV", "dev")).lower()
+    if env == "dev":
+        try:
+            from app.models.skip import Base as SkipBase
+            from app.models.labels import Base as LabelsBase
+            from app.models.driver import Base as DriverBase
+            try:
+                from app.models.models import Base as CoreBase  # movements, weights, transfers, wtns
+            except Exception:
+                CoreBase = None  # type: ignore
+
+            try:
+                from app.models.vehicle import Base as VehicleBase  # new
+            except Exception:
+                VehicleBase = None  # type: ignore
+
+            groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase)]
+            if CoreBase is not None:
+                groups.append(("core", CoreBase))
+
+            if VehicleBase is not None:
+                groups.append(("vehicles", VehicleBase))
+
+            async with engine.begin() as conn:
+                for name, base in groups:
+                    try:
+                        await conn.run_sync(base.metadata.create_all)
+                        logging.getLogger("uvicorn").info("[bootstrap] ensured %s", name)
+                    except Exception as e:
+                        logging.getLogger("uvicorn").warning("[bootstrap] create_all(%s) failed: %s", name, e)
+        except Exception as e:
+            logging.getLogger("uvicorn").warning("[bootstrap] engine.begin() failed: %s", e)
+    else:
+        logging.getLogger("uvicorn").info("[bootstrap] skip create_all in non-dev")
+
+    # enumerate routes
+    try:
+        for r in app.routes:
+            if isinstance(r, APIRoute):
+                m = ",".join(sorted(r.methods or []))
+                logging.getLogger("uvicorn").info("[ROUTE] %-10s %s", m, r.path)
+    except Exception as exc:
+        logging.getLogger("uvicorn").warning("Failed to enumerate routes: %s", exc)
 
 # Health + DB helpers (unchanged)
-@app.get("/__health", tags=["__debug"])
-async def health():
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("select 1"))
-        return {"ok": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"db ping failed: {type(e).__name__}: {e}")
-
 @app.get("/__debug/db")
 async def debug_db():
     try:
@@ -119,10 +173,6 @@ def __debug_mounts() -> List[Dict[str, Any]]:
 @app.get("/__meta/ping")
 def __meta_ping() -> Dict[str, Any]:
     return {"ok": True}
-
-@app.get("/__meta/build")
-def __meta_build() -> Dict[str, Any]:
-    return {"env": os.getenv("ENV", "dev"), "sha": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_SHA", "")), "app_dir": "backend"}
 
 @app.get("/__debug/routes")
 def __debug_routes() -> List[Dict[str, Any]]:
