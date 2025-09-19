@@ -58,16 +58,21 @@ async def seed_skip(
     _: None = Depends(_admin_key_ok),  # authentication guard
 ):
     try:
+        # accept either {"qr_code": "..."} or {"qr": "..."}
+        qr = body.qr_code if getattr(body, "qr_code", None) else getattr(body, "qr", None)
+        if not qr:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="qr required")
+
         # Idempotent by qr_code
         existing = (
-            await session.execute(select(Skip).where(Skip.qr_code == body.qr_code))
+            await session.execute(select(Skip).where(Skip.qr_code == qr))
         ).scalar_one_or_none()
         if existing:
             return {"id": str(existing.id), "qr_code": existing.qr_code}
 
         s = Skip(
             owner_org_id=body.owner_org_id,
-            qr_code=body.qr_code,
+            qr_code=qr,
             size=body.size,
             color=body.color,
             notes=body.notes,
