@@ -96,8 +96,8 @@ function createClient(c: ApiConfig): AxiosInstance {
 export const api = {
   // debug/meta
   health: () => get("/_meta/ping"),
-  routes: () => get("/_debug/routes"),
-  mounts: () => get("/_debug/mounts"),
+  routes: () => get("/__debug/routes"),
+  mounts: () => get("/__debug/mounts"),
   skipsSmoke: () => get("/skips/__smoke"),
   versions: () => get("/meta/versions"),
   latestWtns: (limit = 5) => get(`/__debug/wtns?limit=${limit}`), // admin-gated in prod
