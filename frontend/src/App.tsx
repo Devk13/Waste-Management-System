@@ -61,6 +61,9 @@ export default function App() {
 
   const save = () => { setConfig(cfg); setCfg(getConfig()); pushOut("Saved config", cfg); toast.success("Configuration saved"); };
 
+  const [contractors, setContractors] = useState<any[]>([]);
+  const [contractorId, setContractorId] = useState<string>("");
+
   // load masters
   useEffect(()=>{ (async ()=>{
     try { setDrivers(await api.listDrivers()); } catch(e:any){ toast.error("Failed to load drivers", e?.message); }
@@ -81,6 +84,19 @@ export default function App() {
       throw e;
     }
     finally{ setBusy(false); }
+  };
+
+  useEffect(() => { (async () => {
+    try { setContractors(await api.listContractors()); } catch {}
+  })(); }, [cfg.base, cfg.adminKey]);
+
+  // + Contractor
+  const seedContractor = async () => {
+    const name = prompt("Contractor org name", "ACME LTD");
+    if (!name) return;
+    const r = await run("Create contractor", () => api.createContractor({ org_name: name }));
+    setContractors(await api.listContractors());
+    setContractorId(r.id);
   };
 
   // mini creates
@@ -301,9 +317,10 @@ export default function App() {
         )}
       </section>
 
+      <button onClick={seedContractor}>+ Contractor</button>
+
       <ContractorsAdmin />
       <BinAssignmentsAdmin />
-
 
       {/* Skip create */}
       <SkipCreateForm onSeed={(seededQr) => setQr(seededQr)} />

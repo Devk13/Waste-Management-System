@@ -7,7 +7,7 @@ import { toast } from "../ui/toast";
 
 type Contractor = {
   id: string;
-  name: string;
+  org_name: string;
   contact_name?: string;
   phone?: string;
   email?: string;
@@ -40,7 +40,7 @@ export default function ContractorsAdmin() {
     if (selected) {
       setEdit({
         id: selected.id,
-        name: selected.name ?? "",
+        org_name: selected.org_name ?? "",
         contact_name: selected.contact_name ?? "",
         phone: selected.phone ?? "",
         email: selected.email ?? "",
@@ -54,8 +54,8 @@ export default function ContractorsAdmin() {
 
   const validate = (p: Partial<Contractor>) => {
     const e: Record<string, string> = {};
-    if (!p.name?.trim()) e.name = "Name is required";
-    if ((p.name || "").length > 120) e.name = "Name too long";
+    if (!p.org_name?.trim()) e.name = "Name is required";
+    if ((p.org_name || "").length > 120) e.name = "Name too long";
     if (p.email && !/^\S+@\S+\.\S+$/.test(p.email)) e.email = "Invalid email";
     return e;
   };
@@ -65,7 +65,7 @@ export default function ContractorsAdmin() {
     if (!name) return;
     setBusy(true);
     try {
-      await api.createContractor({ name });
+      await api.createContractor({ org_name: name });
       setItems(await api.listContractors());
       toast.success("Contractor created");
     } catch (e: any) {
@@ -85,7 +85,7 @@ export default function ContractorsAdmin() {
     setBusy(true);
     try {
       await api.updateContractor(selId, {
-        name: edit.name,
+        org_name: edit.org_name,
         contact_name: edit.contact_name ?? "",
         phone: edit.phone ?? "",
         email: edit.email ?? "",
@@ -123,19 +123,17 @@ export default function ContractorsAdmin() {
       <h2>Admin: Contractors</h2>
       <div className="grid3">
         <label>
-          Contractor
-          <select
-            value={selId}
-            onChange={(e) => setSelId(e.target.value)}
-            disabled={busy}
-          >
-            <option value="">-- select contractor --</option>
-            {items.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+            Contractor
+            <select
+                value={selId}
+                onChange={(e) => setSelId(e.target.value)}
+                disabled={busy}
+            >
+                <option value="">-- select contractor --</option>
+                {items.map((c) => (
+                <option key={c.id} value={c.id}>{c.org_name}</option>
+                ))}
+            </select>
         </label>
         <div className="row" style={{ alignItems: "end" }}>
           <button onClick={createItem} disabled={busy}>
@@ -143,7 +141,6 @@ export default function ContractorsAdmin() {
           </button>
         </div>
       </div>
-
       {edit && (
         <div style={{ marginTop: 12 }}>
           <h3 style={{ margin: "8px 0" }}>Edit Contractor</h3>
@@ -151,9 +148,9 @@ export default function ContractorsAdmin() {
             <label>
               Name
               <input
-                value={edit.name}
+                value={edit.org_name}
                 onChange={(e) => {
-                  setEdit({ ...edit!, name: e.target.value });
+                  setEdit({ ...edit!, org_name: e.target.value });
                   setErrs({ ...errs, name: "" });
                 }}
               />

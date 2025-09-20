@@ -112,15 +112,13 @@ export const api = {
 
   // --- contractors ---
 listContractors: () => get("/admin/contractors"),
-createContractor: async (p: { name: string; contact_name?: string; phone?: string; email?: string; active?: boolean }) => {
+// create (note the required org_name)
+createContractor: async (p:{ org_name:string; contact_name?:string; email?:string; phone?:string; billing_address?:string; active?:boolean }) => {
   try { return await post("/admin/contractors", p); } catch (e:any) { throw parseApiError(e); }
 },
-updateContractor: async (id: string, p: Partial<{ name: string; contact_name: string; phone: string; email: string; active: boolean }>) => {
-  try { return await patch(`/admin/contractors/${id}`, p); } catch (e:any) { throw parseApiError(e); }
-},
-deleteContractor: async (id: string) => {
-  try { return await del(`/admin/contractors/${id}`); } catch (e:any) { throw parseApiError(e); }
-},
+// update/delete if you want them now
+updateContractor: (id:string, p:Partial<{ org_name:string; contact_name:string; email:string; phone:string; billing_address:string; active:boolean }>) => patch(`/admin/contractors/${id}`, p),
+deleteContractor: (id:string) => del(`/admin/contractors/${id}`),
 
 // --- bin assignments ---
 listBinAssignments: () => get("/admin/bin-assignments"),
@@ -147,6 +145,16 @@ export async function adminCreateSkip(p: SkipCreateIn) {
     throw parseApiError(e);
   }
 }
+
+export type Contractor = {
+  id: string;
+  org_name: string;
+  contact_name?: string;
+  email?: string;
+  phone?: string;
+  billing_address?: string;
+  active?: boolean;
+};
 
 export type Json = any;
 export function pretty(x:Json){ try{return JSON.stringify(x,null,2)}catch{return String(x)} }
