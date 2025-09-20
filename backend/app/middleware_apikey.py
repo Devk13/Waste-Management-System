@@ -103,6 +103,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/openapi.json",
             "/skips/__smoke",
+            "/__admin/bootstrap",
         ),
         header_name: str = "x-api-key",
         hide_403: bool = False,

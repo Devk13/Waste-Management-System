@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncEngine
 from app.db import engine
 from app.api.guards import admin_gate
+from app.models import Base
+from app.api.admin_bin_assignments import assign_bin
 
 # import your SQLAlchemy Base that has all models registered
 try:
@@ -12,17 +14,12 @@ except Exception:
     # fallback: many codebases expose models.Base
     from app.models import Base  # type: ignore
 
-router = APIRouter(prefix="/__admin", tags=["__admin"], dependencies=[Depends(admin_gate)])
+router = APIRouter(prefix="/__admin", tags=["__admin"])
 
-@router.post("/bootstrap", status_code=status.HTTP_201_CREATED)
-async def bootstrap(db_engine: AsyncEngine = Depends(lambda: engine)):
-    """
-    ONE-OFF: create tables on an empty database.
-    Remove after running once in Render.
-    """
-    try:
-        async with db_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        return {"ok": True, "created": list(Base.metadata.tables.keys())}
-    except Exception as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"bootstrap_failed: {e.__class__.__name__}: {e}")
+@router.post("/bootstrap", dependencies=[Depends(admin_gate)])
+async def bootstrap(_: None = Depends(admin_gate)) -> dict[str, str]:
+    # Create all tables (idempotent)
+    eng: AsyncEngine = engine
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return {"ok": "created"}
