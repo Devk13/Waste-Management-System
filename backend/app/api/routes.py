@@ -57,10 +57,21 @@ _safe_include("", "app.api.wtn", "wtn")
 _safe_include("", "app.api.meta", "__meta")
 _safe_include("", "app.api.wtn_debug", "__debug")
 
+# --- helpers: bool flag resolver with trace -----------------------------------
+def _flag(name: str, default: str = "false") -> bool:
+    """Resolve 'true/1/yes/on' style env or settings values to bool, with trace."""
+    raw = os.getenv(name, default)
+    try:
+        from app.core.config import settings  # type: ignore
+        raw = str(getattr(settings, name, raw))
+    except Exception:
+        pass
+    val = str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    print(f"[routes] flag {name} | raw={raw!r} -> {val}", flush=True)
+    return val
+
 # --- Admin routers (gated by env var) ----------------------------------------
-_EXPOSE = str(getattr(settings, "EXPOSE_ADMIN_ROUTES", os.getenv("EXPOSE_ADMIN_ROUTES", "false"))).lower() in {
-    "1", "true", "yes"
-}
+_EXPOSE = _flag("EXPOSE_ADMIN_ROUTES", "false")
 if _EXPOSE:
     _safe_include("", "app.api.admin_contractors", "admin:contractors")
     _safe_include("", "app.api.admin_vehicles", "admin:vehicles")
