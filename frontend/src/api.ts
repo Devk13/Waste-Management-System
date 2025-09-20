@@ -76,6 +76,7 @@ export const api = {
   routes: () => get("/__debug/routes"),
   mounts: () => get("/__debug/mounts"),
   skipsSmoke: () => get("/skips/__smoke"),
+  bootstrap: () => post("/__admin/bootstrap", {}, { headers: { "X-API-Key": getConfig().adminKey || "" } }),
   versions: () => get("/meta/versions"),
   latestWtns: (limit = 5) => get(`/__debug/wtns?limit=${limit}`),
   meta: async () => {

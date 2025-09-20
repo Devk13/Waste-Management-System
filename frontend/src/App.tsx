@@ -219,6 +219,7 @@ export default function App() {
           <button disabled={busy} onClick={()=>run("_meta/ping", api.health)}>Ping DB</button>
           <button disabled={busy} onClick={()=>run("__debug/routes", api.routes)}>Routes</button>
           <button disabled={busy} onClick={()=>run("__debug/mounts", api.mounts)}>Mounts</button>
+          <button disabled={busy} onClick={() => run("__admin/bootstrap", api.bootstrap)}>Bootstrap DB </button>
           <button disabled={busy} onClick={()=>run("skips/__smoke", api.skipsSmoke)}>Skips Smoke</button>
           <button disabled={busy} onClick={fetchVersions}>Versions</button>
           <button disabled={busy} onClick={async ()=>{
