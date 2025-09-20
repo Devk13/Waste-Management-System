@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import get_db
 
@@ -83,10 +84,28 @@ async def create_driver(
     payload: DriverCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    drv = DriverModel()
-    data = _normalize_driver_payload(payload.model_dump())
-    _set_attrs_safe(drv, data)
-    await db.commit()
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="name required")
+
+    # If your model uses full_name, compare against that
+    stmt = select(DriverModel).where(func.lower(DriverModel.full_name) == name.lower())
+    exists = (await db.execute(stmt)).scalar_one_or_none()
+    if exists:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="name already exists")
+
+    drv = DriverModel(
+        full_name=name,
+        phone=payload.phone,
+        license_no=payload.license_no,
+        active=bool(payload.active) if payload.active is not None else True,
+    )
+    db.add(drv)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="name already exists")
     await db.refresh(drv)
     return drv
 

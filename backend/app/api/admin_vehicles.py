@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import get_db
 from app.api.guards import admin_gate
@@ -78,11 +79,29 @@ async def create_vehicle(
     payload: VehicleCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    v = VehicleModel()
-    data = _normalize_vehicle_payload(payload.model_dump())
-    _set_attrs_safe(v, data)
+    reg = (payload.reg_no or "").strip()
+    if not reg:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="reg_no required")
+
+    # Case-insensitive dedupe check
+    stmt = select(VehicleModel).where(func.lower(VehicleModel.reg_no) == reg.lower())
+    exists = (await db.execute(stmt)).scalar_one_or_none()
+    if exists:
+        # Conflict – your frontend will show a field error on reg_no
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="reg_no already exists")
+
+    v = VehicleModel(
+        reg_no=reg,
+        make=payload.make,
+        model=payload.model,
+        active=bool(payload.active) if payload.active is not None else True,
+    )
     db.add(v)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="reg_no already exists")
     await db.refresh(v)
     return v
 
