@@ -5,6 +5,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api";
 import { toast } from "../ui/toast";
 
+type ContractorsAdminProps = {
+  onResult?: (title: string, payload: any) => void;
+};
+
 type Contractor = {
   id: string;
   org_name: string;
@@ -14,7 +18,7 @@ type Contractor = {
   active?: boolean;
 };
 
-export default function ContractorsAdmin() {
+export default function ContractorsAdmin({ onResult }: ContractorsAdminProps) {
   const [items, setItems] = useState<Contractor[]>([]);
   const [selId, setSelId] = useState<string>("");
   const [edit, setEdit] = useState<Contractor | null>(null);
@@ -61,20 +65,21 @@ export default function ContractorsAdmin() {
   };
 
   const createItem = async () => {
-    const name = prompt("Contractor name", "ACME Contracting");
-    if (!name) return;
-    setBusy(true);
-    try {
-      await api.createContractor({ org_name: name });
-      setItems(await api.listContractors());
-      toast.success("Contractor created");
-    } catch (e: any) {
-      const ae = e as ApiError;
-      toast.error(ae.message || "Create failed");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const name = prompt("Contractor name", "ACME Contracting");
+  if (!name) return;
+  setBusy(true);
+  try {
+    const res = await api.createContractor({ org_name: name });
+    setItems(await api.listContractors());
+    onResult?.("Create contractor", res);
+    toast.success("Contractor created");
+  } catch (e) {
+    const ae = e as ApiError;
+    toast.error(ae.message || "Create failed");
+  } finally {
+    setBusy(false);
+  }
+};
 
   const save = async () => {
     if (!selId || !edit) return;
@@ -84,13 +89,14 @@ export default function ContractorsAdmin() {
 
     setBusy(true);
     try {
-      await api.updateContractor(selId, {
+      const res = await api.updateContractor(selId, {
         org_name: edit.org_name,
         contact_name: edit.contact_name ?? "",
         phone: edit.phone ?? "",
         email: edit.email ?? "",
         active: Boolean(edit.active),
       });
+      onResult?.("Update contractor", res);
       setItems(await api.listContractors());
       toast.success("Saved");
     } catch (e: any) {

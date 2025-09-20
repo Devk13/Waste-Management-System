@@ -317,8 +317,8 @@ export default function App() {
         )}
       </section>
 
-      <ContractorsAdmin />
-      <BinAssignmentsAdmin />
+      <ContractorsAdmin onResult={(title, payload) => pushOut(title, payload)} />
+      <BinAssignmentsAdmin onResult={(title, payload) => pushOut(title, payload)} />
 
       {/* Skip create */}
       <SkipCreateForm onSeed={(seededQr) => setQr(seededQr)} />

@@ -5,6 +5,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api";
 import { toast } from "../ui/toast";
 
+type BinAssignmentsAdminProps = {
+  onResult?: (title: string, payload: any) => void;
+};
+
 type Contractor = { id: string; name: string };
 type BinAssignment = {
   id: string;
@@ -16,7 +20,7 @@ type BinAssignment = {
   notes?: string;
 };
 
-export default function BinAssignmentsAdmin() {
+export default function BinAssignmentsAdmin({ onResult }: BinAssignmentsAdminProps) {
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [items, setItems] = useState<BinAssignment[]>([]);
   const [selId, setSelId] = useState<string>("");
@@ -72,9 +76,9 @@ export default function BinAssignmentsAdmin() {
     if (!contractor_id) return;
     setBusy(true);
     try {
-      const r = await api.createBinAssignment({ contractor_id });
+      const res = await api.createBinAssignment({contractor_id});
+      onResult?.("Create assignment", res);
       setItems(await api.listBinAssignments());
-      setSelId(r.id);
       toast.success("Assignment created");
     } catch (e: any) {
       toast.error((e as ApiError).message || "Create failed");
@@ -91,7 +95,7 @@ export default function BinAssignmentsAdmin() {
 
     setBusy(true);
     try {
-      await api.updateBinAssignment(selId, {
+      const res = await api.updateBinAssignment(selId, {
         contractor_id: edit.contractor_id,
         zone_id: edit.zone_id ?? "",
         bin_size: edit.bin_size ?? "",
@@ -99,6 +103,7 @@ export default function BinAssignmentsAdmin() {
         active: Boolean(edit.active),
         notes: edit.notes ?? "",
       });
+      onResult?.("Update assignment", res);
       setItems(await api.listBinAssignments());
       toast.success("Saved");
     } catch (e: any) {
@@ -115,8 +120,8 @@ export default function BinAssignmentsAdmin() {
     if (!confirm("Delete this assignment?")) return;
     setBusy(true);
     try {
-      await api.deleteBinAssignment(selId);
-      setSelId("");
+      const res = await api.deleteBinAssignment(selId);
+      onResult?.("Delete assignment", res);
       setItems(await api.listBinAssignments());
       toast.success("Deleted");
     } catch (e: any) {
