@@ -1,16 +1,17 @@
 # path: backend/app/api/admin_drivers.py
-from __future__ import annotations
-
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
-from pydantic import BaseModel, Field, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from pydantic import BaseModel, Field
+from pydantic.config import ConfigDict  # pydantic v2
 from app.api.deps import get_db
+from typing import Any, Dict, List, Optional
+
 
 # Resolve model safely – prefer concrete module path
 try:
@@ -26,22 +27,29 @@ router = APIRouter(
     dependencies=[Depends(admin_gate)],
 )
 
-# --------- Schemas ---------
-class DriverBase(BaseModel):
-    name: Optional[str] = None
+# ---- Pydantic schemas ----
+
+class DriverCreate(BaseModel):
+    name: str = Field(min_length=1)
     phone: Optional[str] = None
-    email: Optional[str] = None
+    license_no: Optional[str] = None
     active: Optional[bool] = True
 
-class DriverCreate(DriverBase):
-    name: str = Field(..., min_length=1)
+class DriverUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    license_no: Optional[str] = None
+    active: Optional[bool] = None
 
-class DriverUpdate(DriverBase):
-    pass
+class DriverOut(BaseModel):
+    id: UUID | str
+    full_name: str
+    phone: Optional[str] = None
+    license_no: Optional[str] = None
+    active: bool
 
-class DriverOut(DriverBase):
+    # pydantic v2: enable ORM serialization
     model_config = ConfigDict(from_attributes=True)
-    id: str
 
 
 # --------- Helpers ---------
@@ -88,10 +96,11 @@ async def create_driver(
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="name required")
 
-    # If your model uses full_name, compare against that
+    # your model has 'full_name' (typical) – adjust here if yours is different
     stmt = select(DriverModel).where(func.lower(DriverModel.full_name) == name.lower())
     exists = (await db.execute(stmt)).scalar_one_or_none()
     if exists:
+        # Either return 409 or make it idempotent by returning the existing row.
         raise HTTPException(status.HTTP_409_CONFLICT, detail="name already exists")
 
     drv = DriverModel(
@@ -106,6 +115,9 @@ async def create_driver(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, detail="name already exists")
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="create_failed")
     await db.refresh(drv)
     return drv
 
@@ -135,14 +147,24 @@ async def update_driver(
         stmt = select(DriverModel).where(DriverModel.id == uid)
     except Exception:
         stmt = select(DriverModel).where(DriverModel.id == driver_id)
-    res = await db.execute(stmt)
-    drv = res.scalar_one_or_none()
-    if not drv:
-        raise HTTPException(404, "driver not found")
 
-    data = {k: v for k, v in payload.model_dump().items() if v is not None}
-    _set_attrs_safe(drv, data)
-    await db.commit()
+    drv = (await db.execute(stmt)).scalar_one_or_none()
+    if not drv:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="driver not found")
+
+    # map incoming 'name' to model's 'full_name'
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data:
+        data["full_name"] = data.pop("name")
+
+    for k, v in data.items():
+        setattr(drv, k, v)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="duplicate value")
     await db.refresh(drv)
     return drv
 
