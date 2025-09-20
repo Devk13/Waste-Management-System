@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Request, Body, Depends, Header, HTTPException
 from pydantic import BaseModel
 
+from app.api.routes import admin_gate
+from app.models import models as m
+from app.db import engine
+
 try:
     from app.core.config import settings  # type: ignore[attr-defined]
 except Exception:
@@ -127,5 +131,11 @@ async def debug_admin_expose() -> dict:
         "EXPOSE_ADMIN_ROUTES": _EXPOSE,
         "mount_report": __mount_report__,
     }
+
+@api_router.post("/__admin/bootstrap", tags=["__debug"], dependencies=[Depends(admin_gate)])
+async def bootstrap():
+    async with engine.begin() as conn:
+        await conn.run_sync(m.Base.metadata.create_all)
+    return {"ok": True}
 
 __all__ = ["api_router", "__mount_report__"]
