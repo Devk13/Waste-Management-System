@@ -1,5 +1,5 @@
 // ===========================
-// frontend/src/components/SkipCreateForm.tsx  (complete)
+// frontend/src/components/SkipCreationForm.tsx  (complete)
 // ===========================
 import React, { useEffect, useMemo, useState } from "react";
 import { api, pretty, adminCreateSkip, type SkipCreateIn } from "../api";
@@ -8,7 +8,9 @@ type MetaColors = Record<string, any>;
 type MetaSizes = Record<string, string[]>;
 type MetaShape = { skip: { colors: MetaColors; sizes: MetaSizes } };
 
-export default function SkipCreateForm() {
+export default function SkipCreateForm( 
+  { onSeed }: { onSeed?: (qr: string) => void }
+) {
   const [meta, setMeta] = useState<MetaShape | null>(null);
   const [qr, setQr] = useState("QR-NEW-001");
   const [color, setColor] = useState("");
@@ -42,6 +44,9 @@ export default function SkipCreateForm() {
       const payload: SkipCreateIn = { qr, color, size, notes: notes || undefined };
       const res = await adminCreateSkip(payload);
       setOut(res);
+      // Tell the parent which QR was actually created (backend may return qr_code)
+      const seeded = (res as any)?.qr_code ?? (res as any)?.qr ?? qr;
+      onSeed?.(seeded);
     } catch (e: any) {
       setOut({ error: e?.message, detail: e?.response?.data });
     } finally {

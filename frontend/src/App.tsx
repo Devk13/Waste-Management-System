@@ -7,6 +7,10 @@ import "./styles.css";
 import Toaster from "./ui/Toaster";
 import { toast } from "./ui/toast";
 import SkipCreateForm from "./components/SkipCreationForm";
+import { QRCodeSVG } from "qrcode.react";
+import ContractorsAdmin from "./components/ContractorsAdmin";
+import BinAssignmentsAdmin from "./components/BinAssignmentsAdmin";
+
 
 type PanelResult = { title: string; payload: any; at: string };
 type Versions = { backend?: { env?: string; sha?: string; built_at?: string } };
@@ -130,7 +134,12 @@ export default function App() {
     if (!driverId || !drvEdit) return;
     const errs = validateDriver(drvEdit); setDrvErrs(errs); if (Object.keys(errs).length) { toast.error("Fix validation errors", "Driver"); return; }
     try {
-      await run("Update driver", ()=>api.updateDriver(driverId, drvEdit));
+      await run("Update driver", ()=>api.updateDriver(driverId, {
+    name: drvEdit.name,
+    phone: drvEdit.phone,
+    license_no: drvEdit.license_no,
+    active: drvEdit.active,
+    }));
       setDrivers(await api.listDrivers());
     } catch (e:any) {
       if (e instanceof ApiError && e.fields) setDrvErrs(prev=>({ ...prev, ...e.fields }));
@@ -291,9 +300,12 @@ export default function App() {
         )}
       </section>
 
-      {/* Skip create */}
-      <SkipCreateForm />
+      <ContractorsAdmin />
+      <BinAssignmentsAdmin />
 
+
+      {/* Skip create */}
+      <SkipCreateForm onSeed={(seededQr) => setQr(seededQr)} />
       <section className="card">
         <h2>Seed & Driver Flow</h2>
         <div className="grid3">
