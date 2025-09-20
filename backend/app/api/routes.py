@@ -9,23 +9,30 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Request, Body, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from app.api.routes import admin_gate
+from app.api.guards import admin_gate
 from app.models import models as m
 from app.db import engine
 
 try:
-    from app.core.config import settings  # type: ignore[attr-defined]
-except Exception:
-    class _S:
-        EXPOSE_ADMIN_ROUTES = False
-        ENV = "dev"
-        ADMIN_API_KEY = "super-temp-seed-key"
+    from app.core.config import settings
+except Exception:  # safe fallback if settings import fails early
+    class _S: ENV = os.getenv("ENV", "dev"); ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
     settings = _S()  # type: ignore
+
+IS_PROD = str(getattr(settings, "ENV", os.getenv("ENV", "dev"))).lower() == "prod"
+ADMIN_KEY = os.getenv("ADMIN_API_KEY", getattr(settings, "ADMIN_API_KEY", ""))
 
 log = logging.getLogger(__name__)
 
 api_router = APIRouter()
 __mount_report__: List[Dict[str, Any]] = []
+
+async def admin_gate(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    """Require X-API-Key in prod; no-op in dev."""
+    if not IS_PROD:
+        return
+    if not ADMIN_KEY or x_api_key != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Admin key required")
 
 def _trace(msg: str) -> None:
     print(f"[routes] {msg}", flush=True)
@@ -43,8 +50,6 @@ def _safe_include(prefix: str, import_path: str, tag: Optional[str] = None) -> N
         __mount_report__.append({"module": import_path, "prefix": prefix, "ok": False, "error": str(exc)})
         log.warning("Skipped %s at %s: %s", import_path, prefix, exc)
 
-IS_PROD = str(getattr(settings, "ENV", "dev")).lower() == "prod"
-ADMIN_KEY = str(getattr(settings, "ADMIN_API_KEY", ""))
 
 # --- admin gate: only enforced in prod ---------------------------------------
 def admin_gate(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.api.routes import admin_gate
+from app.api.guards import admin_gate
 
 # Resolve model safely – prefer concrete module path
 try:

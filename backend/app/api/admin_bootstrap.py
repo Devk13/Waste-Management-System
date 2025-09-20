@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncEngine
 from app.db import engine
-from app.api.routes import admin_gate
+from app.api.guards import admin_gate
 
 # import your SQLAlchemy Base that has all models registered
 try:

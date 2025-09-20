@@ -17,7 +17,7 @@ try:
 except Exception:
     from app.models import DriverProfile as DriverModel
 
-from app.api.routes import admin_gate
+from app.api.guards import admin_gate
 
 router = APIRouter(
     prefix="/admin/drivers",
