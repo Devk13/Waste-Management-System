@@ -18,8 +18,13 @@ except Exception:  # pragma: no cover
     from app.models import models as m  # type: ignore
     DriverModel = getattr(m, "DriverProfile")  # type: ignore
 
-router = APIRouter(prefix="/admin/drivers", tags=["admin:drivers"])
+from app.api.routes import admin_gate
 
+router = APIRouter(
+    prefix="/admin/drivers",
+    tags=["admin:drivers"],
+    dependencies=[Depends(admin_gate)],
+)
 
 # --------- Schemas ---------
 class DriverBase(BaseModel):
@@ -47,6 +52,12 @@ def _set_attrs_safe(obj: Any, data: Dict[str, Any]) -> None:
         if hasattr(obj, k):
             setattr(obj, k, v)
 
+def _normalize_driver_payload(d: dict) -> dict:
+    d = dict(d or {})
+    if "name" in d and "full_name" not in d:
+        d["full_name"] = d.pop("name")
+    return {k: v for k, v in d.items() if v is not None}
+
 
 # --------- Routes ---------
 @router.get("", response_model=List[DriverOut])
@@ -69,10 +80,13 @@ async def list_drivers(
 
 
 @router.post("", response_model=DriverOut, status_code=status.HTTP_201_CREATED)
-async def create_driver(payload: DriverCreate, db: AsyncSession = Depends(get_db)):
+async def create_driver(
+    payload: DriverCreate,
+    db: AsyncSession = Depends(get_db),
+):
     drv = DriverModel()
-    _set_attrs_safe(drv, payload.model_dump())
-    db.add(drv)
+    data = _normalize_driver_payload(payload.model_dump())
+    _set_attrs_safe(drv, data)
     await db.commit()
     await db.refresh(drv)
     return drv

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-
+from app.api.routes import admin_gate
 # Resolve model safely: prefer app.models.Vehicle, fallback to app.models.models.Vehicle
 try:
     from app.models import Vehicle as VehicleModel  # type: ignore
@@ -18,7 +18,11 @@ except Exception:  # pragma: no cover
     from app.models import models as m  # type: ignore
     VehicleModel = getattr(m, "Vehicle")  # type: ignore
 
-router = APIRouter(prefix="/admin/vehicles", tags=["admin:vehicles"])
+router = APIRouter(
+    prefix="/admin/vehicles",
+    tags=["admin:vehicles"],
+    dependencies=[Depends(admin_gate)],
+)
 
 
 # --------- Schemas ---------
@@ -38,7 +42,6 @@ class VehicleOut(VehicleBase):
     model_config = ConfigDict(from_attributes=True)
     id: str
 
-
 # --------- Helpers ---------
 def _set_attrs_safe(obj: Any, data: Dict[str, Any]) -> None:
     for k, v in data.items():
@@ -47,6 +50,9 @@ def _set_attrs_safe(obj: Any, data: Dict[str, Any]) -> None:
         if hasattr(obj, k):
             setattr(obj, k, v)
 
+def _normalize_vehicle_payload(d: dict) -> dict:
+    d = dict(d or {})
+    return {k: v for k, v in d.items() if v is not None}
 
 # --------- Routes ---------
 @router.get("", response_model=List[VehicleOut])
@@ -68,9 +74,13 @@ async def list_vehicles(
 
 
 @router.post("", response_model=VehicleOut, status_code=status.HTTP_201_CREATED)
-async def create_vehicle(payload: VehicleCreate, db: AsyncSession = Depends(get_db)):
+async def create_vehicle(
+    payload: VehicleCreate,
+    db: AsyncSession = Depends(get_db),
+):
     v = VehicleModel()
-    _set_attrs_safe(v, payload.model_dump())
+    data = _normalize_vehicle_payload(payload.model_dump())
+    _set_attrs_safe(v, data)
     db.add(v)
     await db.commit()
     await db.refresh(v)

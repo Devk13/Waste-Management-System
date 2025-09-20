@@ -13,3 +13,5 @@ qrcode[pil]
 reportlab
 
 weasyprint>=61     # Enable PDF
+
+pydantic[email]
