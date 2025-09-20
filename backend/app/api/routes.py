@@ -23,6 +23,9 @@ log = logging.getLogger(__name__)
 api_router = APIRouter()
 __mount_report__: List[Dict[str, Any]] = []
 
+def _trace(msg: str) -> None:
+    print(f"[routes] {msg}", flush=True)
+
 def _safe_include(prefix: str, import_path: str, tag: Optional[str] = None) -> None:
     try:
         module = import_module(import_path)
@@ -70,15 +73,23 @@ def _flag(name: str, default: str = "false") -> bool:
     print(f"[routes] flag {name} | raw={raw!r} -> {val}", flush=True)
     return val
 
-# --- Admin routers (gated by env var) ----------------------------------------
+# --- Admin routers (gated by env var + traced) -------------------------------
 _EXPOSE = _flag("EXPOSE_ADMIN_ROUTES", "false")
 if _EXPOSE:
-    _safe_include("", "app.api.admin_contractors", "admin:contractors")
-    _safe_include("", "app.api.admin_vehicles", "admin:vehicles")
-    _safe_include("", "app.api.admin_drivers", "admin:drivers")
-    _safe_include("", "app.api.admin_bin_assignments", "admin:bins")
+    _trace("EXPOSE=true — mounting admin routers")
+    for mod, tag in [
+        ("app.api.admin_contractors", "admin:contractors"),
+        ("app.api.admin_vehicles",    "admin:vehicles"),
+        ("app.api.admin_drivers",     "admin:drivers"),
+        ("app.api.admin_bin_assignments", "admin:bins"),
+    ]:
+        try:
+            _safe_include("", mod, tag)
+            _trace(f"mounted {mod}")
+        except Exception as e:
+            _trace(f"FAILED {mod}: {type(e).__name__}: {e}")
 else:
-    log.info("Admin routes disabled (EXPOSE_ADMIN_ROUTES=false)")
+    _trace("Admin routes disabled (EXPOSE_ADMIN_ROUTES=false)")
 
 # --- Meta + Debug ------------------------------------------------------------
 @api_router.get("/_meta/ping", tags=["__meta"])
@@ -108,5 +119,12 @@ async def ensure_skip_dev_fallback() -> EnsureSkipResult:
     if IS_PROD:
         raise HTTPException(status_code=404, detail="Not found")
     return EnsureSkipResult()
+
+@api_router.get("/__debug/admin_expose", tags=["__debug"])
+async def debug_admin_expose() -> dict:
+    return {
+        "EXPOSE_ADMIN_ROUTES": _EXPOSE,
+        "mount_report": __mount_report__,
+    }
 
 __all__ = ["api_router", "__mount_report__"]
