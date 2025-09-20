@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.routes import admin_gate
-# Resolve model safely: prefer app.models.Vehicle, fallback to app.models.models.Vehicle
+
+# Resolve model safely – prefer concrete module path
 try:
-    from app.models import Vehicle as VehicleModel  # type: ignore
-except Exception:  # pragma: no cover
-    from app.models import models as m  # type: ignore
-    VehicleModel = getattr(m, "Vehicle")  # type: ignore
+    from app.models.vehicle import Vehicle as VehicleModel
+except Exception:  # fallback if re-exported at package root
+    from app.models import Vehicle as VehicleModel
 
 router = APIRouter(
     prefix="/admin/vehicles",

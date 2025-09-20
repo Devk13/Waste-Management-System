@@ -11,12 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 
-# Resolve model safely: prefer app.models.DriverProfile, fallback to app.models.models.DriverProfile
+# Resolve model safely – prefer concrete module path
 try:
-    from app.models import DriverProfile as DriverModel  # type: ignore
-except Exception:  # pragma: no cover
-    from app.models import models as m  # type: ignore
-    DriverModel = getattr(m, "DriverProfile")  # type: ignore
+    from app.models.driver import DriverProfile as DriverModel
+except Exception:
+    from app.models import DriverProfile as DriverModel
 
 from app.api.routes import admin_gate
 

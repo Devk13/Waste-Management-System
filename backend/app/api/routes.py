@@ -76,6 +76,7 @@ def _flag(name: str, default: str = "false") -> bool:
 # --- Admin routers (gated by env var + traced) -------------------------------
 _EXPOSE = _flag("EXPOSE_ADMIN_ROUTES", "false")
 if _EXPOSE:
+    _safe_include("", "app.api.admin_bootstrap", "__admin")
     _trace("EXPOSE=true — mounting admin routers")
     for mod, tag in [
         ("app.api.admin_contractors", "admin:contractors"),
