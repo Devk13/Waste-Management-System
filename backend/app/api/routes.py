@@ -60,10 +60,12 @@ def admin_gate(x_api_key: str | None = Header(default=None, alias="X-API-Key")) 
 
 # --- Core routers (single pass) ----------------------------------------------
 _safe_include("/driver", "app.api.driver", "driver")
+
 if not IS_PROD:
     _safe_include("/driver/dev", "app.api.dev", "dev")  # hidden in prod
+    _safe_include("/skips", "app.api.skips_smoke", "skips")
+
 _safe_include("/skips", "app.api.skips", "skips")
-_safe_include("/skips", "app.api.skips_smoke", "skips")
 _safe_include("", "app.api.driver_schedule", "driver:schedule")
 _safe_include("", "app.api.wtn", "wtn")
 _safe_include("", "app.api.meta", "__meta")
