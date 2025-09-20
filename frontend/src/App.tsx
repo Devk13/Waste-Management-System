@@ -317,8 +317,6 @@ export default function App() {
         )}
       </section>
 
-      <button onClick={seedContractor}>+ Contractor</button>
-
       <ContractorsAdmin />
       <BinAssignmentsAdmin />
 
