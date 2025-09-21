@@ -164,7 +164,7 @@ unassignBin: (p: { qr: string; contractor_id?: string }) =>
 };
 
 // optional helper you added is fine to keep:
-export type SkipCreateIn = { qr:string; color:string; size:string; notes?:string };
+export type SkipCreateIn = { qr:string; color:string; size:string; notes?:string; owner_org_id?: string };
 export async function adminCreateSkip(p: SkipCreateIn) {
   try {
     // map `qr` -> `qr_code` for the backend seed schema

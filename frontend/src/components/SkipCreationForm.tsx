@@ -1,14 +1,14 @@
 // ===========================
-// frontend/src/components/SkipCreationForm.tsx  (complete)
+// frontend/src/components/SkipCreationForm.tsx  (complete, fixed)
 // ===========================
 import React, { useEffect, useMemo, useState } from "react";
 import { api, pretty, adminCreateSkip, type SkipCreateIn } from "../api";
 
 type MetaColors = Record<string, any>;
-type MetaSizes  = Record<string, Array<string | number>>;   // ⬅️ was string[]
+type MetaSizes  = Record<string, Array<string | number>>;
 type MetaShape  = { skip: { colors: MetaColors; sizes: MetaSizes } };
 
-export default function SkipCreateForm( 
+export default function SkipCreateForm(
   { onSeed }: { onSeed?: (qr: string) => void }
 ) {
   const [meta, setMeta] = useState<MetaShape | null>(null);
@@ -16,23 +16,22 @@ export default function SkipCreateForm(
   const [color, setColor] = useState("");
   const [size, setSize] = useState("");
   const [notes, setNotes] = useState("");
+  const [ownerOrgId, setOwnerOrgId] = useState("ORG1"); // <-- moved here (top-level hook)
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<any>(null);
 
   useEffect(() => {
-  let alive = true;
-
-  (async () => {
-    try {
-      const m = await api.meta();      // ← normalized meta() we just added in api.ts
-      if (alive) setMeta(m);
-    } catch {
-      if (alive) setMeta(null);
-    }
-  })();
-
-  return () => { alive = false; };
-}, []);
+    let alive = true;
+    (async () => {
+      try {
+        const m = await api.meta();      // normalized meta()
+        if (alive) setMeta(m);
+      } catch {
+        if (alive) setMeta(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const colorOptions = useMemo(() => {
     const colors = meta?.skip?.colors ?? {};
@@ -43,31 +42,33 @@ export default function SkipCreateForm(
   }, [meta]);
 
   const groupedSizeOptions = useMemo(() => {
-  const sizes = meta?.skip?.sizes ?? {};
-  return Object.entries(sizes).map(([group, items]) => {
-    const arr = (items as Array<string | number>).map(v => {
-      const s = String(v);
-      return { value: s, label: s };
+    const sizes = meta?.skip?.sizes ?? {};
+    return Object.entries(sizes).map(([group, items]) => {
+      const arr = (items as Array<string | number>).map(v => {
+        const s = String(v);
+        return { value: s, label: s };
+      });
+      return { group, items: arr };
     });
-    return { group, items: arr };
-  });
-}, [meta]);
+  }, [meta]);
 
   const submit = async () => {
-    if (!qr || !color || !size) { setOut({ error:"Missing required fields" }); return; }
+    if (!qr || !color || !size) { setOut({ error: "Missing required fields" }); return; }
     setBusy(true);
     try {
-      const payload: SkipCreateIn = { qr, color, size, notes: notes || undefined };
+      const payload: SkipCreateIn = {
+        qr,
+        color,
+        size,
+        notes: notes || undefined,
+        owner_org_id: ownerOrgId?.trim() || undefined,
+      };
       const res = await adminCreateSkip(payload);
       setOut(res);
-      // Tell the parent which QR was actually created (backend may return qr_code)
       const seeded = (res as any)?.qr_code ?? (res as any)?.qr ?? qr;
       onSeed?.(seeded);
     } catch (e: any) {
-  setOut({
-    error: e?.message || "Request failed",
-    detail: e?.response?.data ?? e
-  });
+      setOut({ error: e?.message || "Request failed", detail: e?.response?.data ?? e });
     } finally {
       setBusy(false);
     }
@@ -102,14 +103,25 @@ export default function SkipCreateForm(
           </select>
         </label>
       </div>
+
       <div className="grid2" style={{ marginTop: 8 }}>
         <label>Notes
           <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="optional" />
         </label>
+        <label>Owner Org (optional)
+          <input
+            value={ownerOrgId}
+            onChange={(e) => setOwnerOrgId(e.target.value)}
+            placeholder="e.g. ORG1"
+          />
+        </label>
       </div>
+
       <div className="row" style={{ marginTop: 10 }}>
         <button disabled={busy || !meta} onClick={submit}>Create / Seed</button>
-        <span className="muted">Uses color + size from <code>/meta/config</code>. Falls back to dev seeding if needed.</span>
+        <span className="muted">
+          Uses color + size from <code>/meta/config</code>. Falls back to dev seeding if needed.
+        </span>
       </div>
 
       <div style={{ marginTop: 12 }}>
