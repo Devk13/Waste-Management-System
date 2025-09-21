@@ -28,8 +28,9 @@ function findWtnUrl(resp: unknown): string | null {
   for (const v of Object.values(obj)) if (typeof v === "string" && v.includes("/wtn/") && v.endsWith(".pdf")) return v;
   return null;
 }
-function joinUrl(base: string, path: string): string {
-  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+
+function joinUrl(base: string | undefined, path: string): string {
+  const b = ((base ?? "") as string).replace(/\/+$/, ""); // safe
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
 }
@@ -66,7 +67,8 @@ export default function App() {
     setOut((xs)=>[{title, payload, at:new Date().toLocaleTimeString()}, ...xs].slice(0,30));
 
   const save = () => {
-    setConfig(cfg);
+    setConfig(cfg); // existing store for the old panels
+    // mirror to the jobs/my-tasks store
     saveDevCfg({
       baseUrl: (cfg.base || "").replace(/\/+$/, ""),
       adminKey: cfg.adminKey || "",
