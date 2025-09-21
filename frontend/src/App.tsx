@@ -1,19 +1,17 @@
 // path: frontend/src/App.tsx
-
 import React, { useEffect, useMemo, useState } from "react";
 import { api, getConfig, setConfig, pretty, ApiError } from "./api";
 import "./styles.css";
 import Toaster from "./ui/Toaster";
 import { toast } from "./ui/toast";
 import SkipCreateForm from "./components/SkipCreationForm";
-import { QRCodeSVG } from "qrcode.react";
+// import { QRCodeSVG } from "qrcode.react"; // unused
 import ContractorsAdmin from "./components/ContractorsAdmin";
 import BinAssignmentsAdmin from "./components/BinAssignmentsAdmin";
-import ConfigCard from "./components/ConfigCard"
-import JobsCard from "./components/admin/JobsCard"
-import MyTasksPanel from "./components/driver/MyTasksPanel"
+// import ConfigCard from "./components/ConfigCard" // not used here
+import JobsCard from "./components/admin/JobsCard";
+import MyTasksPanel from "./components/driver/MyTasksPanel";
 import { loadCfg as loadDevCfg, saveCfg as saveDevCfg } from "./lib/devConfig";
-
 
 type PanelResult = { title: string; payload: any; at: string };
 type Versions = { backend?: { env?: string; sha?: string; built_at?: string } };
@@ -29,34 +27,38 @@ function findWtnUrl(resp: unknown): string | null {
   return null;
 }
 
-// 1) Make joinUrl safe
+// null-safe join
 function joinUrl(base: string | undefined, path: string): string {
-  const b = String(base ?? "").replace(/\/+$/, "");   // tolerate undefined
+  const b = String(base ?? "").replace(/\/+$/, "");
   const p = path?.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
 }
 
-// 2) Add a tiny error boundary wrapper (at the top-level component)
+// Minimal error boundary with reset
 function Safe({ children }: { children: React.ReactNode }) {
   const [err, setErr] = React.useState<Error | null>(null);
   React.useEffect(() => {
-    const h = (e: ErrorEvent) => setErr(e.error || new Error(String(e.message || "unknown error")));
-    window.addEventListener("error", h);
-    return () => window.removeEventListener("error", h);
+    const onError = (e: ErrorEvent) => setErr(e.error || new Error(String(e.message || "unknown error")));
+    const onRej = (e: PromiseRejectionEvent) => setErr(e.reason instanceof Error ? e.reason : new Error(String(e.reason)));
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
   }, []);
   if (!err) return <>{children}</>;
-  // Rescue banner with Reset Config
   return (
     <div style={{padding:16}}>
       <div className="card" style={{borderColor:"#f39"}}>
         <h2 style={{color:"#f39"}}>App crashed</h2>
         <p className="muted">{String(err.message)}</p>
         <div className="row" style={{gap:8}}>
-          <button onClick={() => { 
+          <button onClick={() => {
             try { localStorage.removeItem("wm_console_cfg"); localStorage.removeItem("wm_dev_console_cfg"); } catch {}
             location.href = location.origin + "/?v=" + Date.now();
           }}>Reset Config & Reload</button>
-          <button className="ghost" onClick={() => console.log(err)}>Details (console)</button>
+          <button className="ghost" onClick={() => console.error(err)}>Details (console)</button>
         </div>
       </div>
     </div>
@@ -95,36 +97,31 @@ export default function App() {
     setOut((xs)=>[{title, payload, at:new Date().toLocaleTimeString()}, ...xs].slice(0,30));
 
   const save = () => {
-    setConfig(cfg); // existing store for the old panels
-    // mirror to the jobs/my-tasks store
+    const trimmed = { ...cfg, base: (cfg.base || "").trim() };
+    setConfig(trimmed); // writes both stores & rebuilds axios client
+    // mirror driverId in dev store explicitly
     saveDevCfg({
-      baseUrl: (cfg.base || "").replace(/\/+$/, ""),
-      adminKey: cfg.adminKey || "",
-      driverKey: cfg.apiKey || "",
+      baseUrl: (trimmed.base || "").replace(/\/+$/, ""),
+      adminKey: trimmed.adminKey || "",
+      driverKey: trimmed.apiKey || "",
       driverId: driverIdCfg || ""
     });
     setCfg(getConfig());
-    pushOut("Saved config", { ...cfg, driverId: driverIdCfg });
+    pushOut("Saved config", { ...trimmed, driverId: driverIdCfg });
     toast.success("Configuration saved");
   };
 
   const [contractors, setContractors] = useState<any[]>([]);
   const [contractorId, setContractorId] = useState<string>("");
 
-  // load masters
+  // load masters (only when configured)
   useEffect(() => {
-    if (!cfg.base || !cfg.adminKey) return; // avoid noisy 401s before config
+    if (!cfg.base || !cfg.adminKey) return;
     let cancelled = false;
     (async () => {
       try {
-        const [ds, vs] = await Promise.all([
-          api.listDrivers(),
-          api.listVehicles(),
-        ]);
-        if (!cancelled) {
-          setDrivers(ds);
-          setVehicles(vs);
-        }
+        const [ds, vs] = await Promise.all([api.listDrivers(), api.listVehicles()]);
+        if (!cancelled) { setDrivers(ds); setVehicles(vs); }
       } catch (e: any) {
         toast.error("Failed to load drivers/vehicles", e?.message);
       }
@@ -132,7 +129,7 @@ export default function App() {
     return () => { cancelled = true; };
   }, [cfg.base, cfg.adminKey]);
 
-  // reflect selections into text fields
+  // reflect selections
   useEffect(()=>{ const d = drivers.find(x=>x.id===driverId); if (d) setDriverName(driverLabel(d)); }, [driverId, drivers]);
   useEffect(()=>{ const v = vehicles.find(x=>x.id===vehId); if (v) setVehReg(vehicleLabel(v)); }, [vehId, vehicles]);
 
@@ -194,7 +191,7 @@ export default function App() {
     setVehErrs({});
   }, [selVehicle]);
 
-  // simple validators
+  // validators
   function validateDriver(p:{name:string}): Record<string,string> {
     const e: Record<string,string> = {};
     if (!p.name?.trim()) e.name = "Name is required";
@@ -213,11 +210,8 @@ export default function App() {
     const errs = validateDriver(drvEdit); setDrvErrs(errs); if (Object.keys(errs).length) { toast.error("Fix validation errors", "Driver"); return; }
     try {
       await run("Update driver", ()=>api.updateDriver(driverId, {
-    name: drvEdit.name,
-    phone: drvEdit.phone,
-    license_no: drvEdit.license_no,
-    active: drvEdit.active,
-    }));
+        name: drvEdit.name, phone: drvEdit.phone, license_no: drvEdit.license_no, active: drvEdit.active,
+      }));
       setDrivers(await api.listDrivers());
     } catch (e:any) {
       if (e instanceof ApiError && e.fields) setDrvErrs(prev=>({ ...prev, ...e.fields }));
@@ -259,201 +253,197 @@ export default function App() {
     await run("driver/return-empty", ()=>api.returnEmpty({ skip_qr:qr, to_zone_id:zoneC, driver_name:driverName }));
   };
 
-  // Versions badge
   const fetchVersions = async () => { const data = await run("meta/versions", api.versions) as Versions; setVer(data); };
   const envText = ver?.backend?.env ?? ""; const shaText = ver?.backend?.sha ?? ""; const builtAt = ver?.backend?.built_at ?? "";
 
   return (
     <Safe>
-    <div className="wrap">
-      <Toaster />
-      <div className="header">
-        <div>
-          <h1>WMIS Dev Console</h1>
-          <p className="muted">Driver flow + admin masters + WTN</p>
-        </div>
-        <div className="row">
-          <div className="tag">{busy? "running…" : "idle"}</div>
-          {envText || shaText ? (
-            <div className="tag" title={builtAt ? `built ${builtAt}` : undefined}>
-              {envText ? envText : "env"} • {shaText || "sha"}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <section className="card">
-        <h2>Config</h2>
-        <div className="grid3">
-          <label>Base URL<input value={cfg.base} onChange={(e)=>setCfg({...cfg, base:e.target.value})}/></label>
-          <label>Driver API Key<input value={cfg.apiKey??""} onChange={(e)=>setCfg({...cfg, apiKey:e.target.value})}/></label>
-          <label>Admin Key<input value={cfg.adminKey??""} onChange={(e)=>setCfg({...cfg, adminKey:e.target.value})}/></label>
-          <label className="full">Driver Id <input value={driverIdCfg} onChange={(e)=>setDriverIdCfg(e.target.value)} placeholder="e.g. drv_123"/> </label>
-        </div>
-        <div className="row"><button onClick={save}>Save</button></div>
-      </section>
-
-      <section className="card">
-        <h2>Debug</h2>
-        <div className="row">
-          <button disabled={busy} onClick={()=>run("_meta/ping", api.health)}>Ping DB</button>
-          <button disabled={busy} onClick={()=>run("__debug/routes", api.routes)}>Routes</button>
-          <button disabled={busy} onClick={()=>run("__debug/mounts", api.mounts)}>Mounts</button>
-          <button disabled={busy} onClick={() => run("__admin/bootstrap", api.bootstrap)}>Bootstrap DB </button>
-          <button disabled={busy} onClick={()=>run("skips/__smoke", api.skipsSmoke)}>Skips Smoke</button>
-          <button disabled={busy} onClick={fetchVersions}>Versions</button>
-          <button disabled={busy} onClick={async ()=>{
-          const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
-          const u = r?.items?.[0]?.pdf_url; if (!u) return;
-          const href = `${joinUrl(cfg.base, u)}?format=html`;
-          window.open(href, "_blank");
-        }}>Open Latest WTN (HTML)</button>
-
-        <button disabled={busy} onClick={async ()=>{
-          const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
-          const u = r?.items?.[0]?.pdf_url; if (!u) return;
-          const href = `${joinUrl(cfg.base, u)}?format=pdf`;
-          window.open(href, "_blank");
-        }}>Open Latest WTN (PDF)</button>
-        </div>
-      </section>
-
-      <section className="card">
-        <h2>Dispatch (Jobs & My Tasks)</h2>
-        <div className="row wrap" style={{ gap: 16 }}>
-          <div style={{ flex: 1, minWidth: 320 }}>
-            <JobsCard />
+      <div className="wrap">
+        <Toaster />
+        <div className="header">
+          <div>
+            <h1>WMIS Dev Console</h1>
+            <p className="muted">Driver flow + admin masters + WTN</p>
           </div>
-          <div style={{ flex: 1, minWidth: 320 }}>
-            <MyTasksPanel />
-          </div>
-        </div>
-      </section>
-
-      {/* Admin CRUD */}
-      <section className="card">
-        <h2>Admin: Drivers & Vehicles</h2>
-        <div className="grid3">
-          <label>Driver
-            <select value={driverId} onChange={(e)=>setDriverId(e.target.value)}>
-              <option value="">-- select driver --</option>
-              {drivers.map((d:any)=><option key={d.id} value={d.id}>{driverLabel(d)}</option>)}
-            </select>
-          </label>
-          <label>Vehicle
-            <select value={vehId} onChange={(e)=>setVehId(e.target.value)}>
-              <option value="">-- select vehicle --</option>
-              {vehicles.map((v:any)=><option key={v.id} value={v.id}>{vehicleLabel(v)}</option>)}
-            </select>
-          </label>
           <div className="row">
-            <button onClick={seedDriver}>+ Driver</button>
-            <button onClick={seedVehicle}>+ Vehicle</button>
+            <div className="tag">{busy? "running…" : "idle"}</div>
+            {envText || shaText ? (
+              <div className="tag" title={builtAt ? `built ${builtAt}` : undefined}>
+                {envText ? envText : "env"} • {shaText || "sha"}
+              </div>
+            ) : null}
           </div>
         </div>
 
-        {/* Driver editor */}
-        {drvEdit && (
-          <div style={{marginTop:12}}>
-            <h3 style={{margin:"8px 0"}}>Edit Driver</h3>
-            <div className="grid3">
-              <label>Name
-                <input value={drvEdit.name} onChange={(e)=>{ setDrvEdit({...drvEdit!, name:e.target.value}); setDrvErrs({...drvErrs, name:""}); }}/>
-                {drvErrs.name ? <small style={{color:"#f39"}}>{drvErrs.name}</small> : null}
-              </label>
-              <label>Phone<input value={drvEdit.phone??""} onChange={(e)=>setDrvEdit({...drvEdit!, phone:e.target.value})}/></label>
-              <label>License #<input value={drvEdit.license_no??""} onChange={(e)=>setDrvEdit({...drvEdit!, license_no:e.target.value})}/></label>
+        <section className="card">
+          <h2>Config</h2>
+          <div className="grid3">
+            <label>Base URL<input value={cfg.base} onChange={(e)=>setCfg({...cfg, base:e.target.value})}/></label>
+            <label>Driver API Key<input value={cfg.apiKey??""} onChange={(e)=>setCfg({...cfg, apiKey:e.target.value})}/></label>
+            <label>Admin Key<input value={cfg.adminKey??""} onChange={(e)=>setCfg({...cfg, adminKey:e.target.value})}/></label>
+            <label className="full">Driver Id <input value={driverIdCfg} onChange={(e)=>setDriverIdCfg(e.target.value)} placeholder="e.g. drv_123"/></label>
+          </div>
+          <div className="row"><button onClick={save}>Save</button></div>
+        </section>
+
+        <section className="card">
+          <h2>Debug</h2>
+          <div className="row">
+            <button disabled={busy} onClick={()=>run("_meta/ping", api.health)}>Ping DB</button>
+            <button disabled={busy} onClick={()=>run("__debug/routes", api.routes)}>Routes</button>
+            <button disabled={busy} onClick={()=>run("__debug/mounts", api.mounts)}>Mounts</button>
+            <button disabled={busy} onClick={() => run("__admin/bootstrap", api.bootstrap)}>Bootstrap DB </button>
+            <button disabled={busy} onClick={()=>run("skips/__smoke", api.skipsSmoke)}>Skips Smoke</button>
+            <button disabled={busy} onClick={fetchVersions}>Versions</button>
+            <button disabled={busy} onClick={async ()=>{
+              const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
+              const u = r?.items?.[0]?.pdf_url; if (!u) return;
+              const href = `${joinUrl(cfg.base, u)}?format=html`;
+              window.open(href, "_blank");
+            }}>Open Latest WTN (HTML)</button>
+            <button disabled={busy} onClick={async ()=>{
+              const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
+              const u = r?.items?.[0]?.pdf_url; if (!u) return;
+              const href = `${joinUrl(cfg.base, u)}?format=pdf`;
+              window.open(href, "_blank");
+            }}>Open Latest WTN (PDF)</button>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>Dispatch (Jobs & My Tasks)</h2>
+          <div className="row wrap" style={{ gap: 16 }}>
+            <div style={{ flex: 1, minWidth: 320 }}>
+              <JobsCard />
             </div>
-            <div className="row" style={{marginTop:8}}>
-              <label className="row"><input type="checkbox" checked={drvEdit.active} onChange={(e)=>setDrvEdit({...drvEdit!, active:e.target.checked})}/> Active</label>
-              <button disabled={!!validateDriver(drvEdit).name} onClick={saveDriver}>Save</button>
-              <button className="ghost" onClick={deleteDriver}>Delete</button>
+            <div style={{ flex: 1, minWidth: 320 }}>
+              <MyTasksPanel />
             </div>
           </div>
-        )}
+        </section>
 
-        {/* Vehicle editor */}
-        {vehEdit && (
-          <div style={{marginTop:12}}>
-            <h3 style={{margin:"8px 0"}}>Edit Vehicle</h3>
-            <div className="grid3">
-              <label>Reg No
-                <input value={vehEdit.reg_no} onChange={(e)=>{ setVehEdit({...vehEdit!, reg_no:e.target.value}); setVehErrs({...vehErrs, reg_no:""}); }}/>
-                {vehErrs.reg_no ? <small style={{color:"#f39"}}>{vehErrs.reg_no}</small> : null}
-              </label>
-              <label>Make<input value={vehEdit.make??""} onChange={(e)=>setVehEdit({...vehEdit!, make:e.target.value})}/></label>
-              <label>Model<input value={vehEdit.model??""} onChange={(e)=>setVehEdit({...vehEdit!, model:e.target.value})}/></label>
-            </div>
-            <div className="row" style={{marginTop:8}}>
-              <label className="row"><input type="checkbox" checked={vehEdit.active} onChange={(e)=>setVehEdit({...vehEdit!, active:e.target.checked})}/> Active</label>
-              <button disabled={!!validateVehicle(vehEdit).reg_no} onClick={saveVehicle}>Save</button>
-              <button className="ghost" onClick={deleteVehicle}>Delete</button>
+        {/* Admin CRUD */}
+        <section className="card">
+          <h2>Admin: Drivers & Vehicles</h2>
+          <div className="grid3">
+            <label>Driver
+              <select value={driverId} onChange={(e)=>setDriverId(e.target.value)}>
+                <option value="">-- select driver --</option>
+                {drivers.map((d:any)=><option key={d.id} value={d.id}>{driverLabel(d)}</option>)}
+              </select>
+            </label>
+            <label>Vehicle
+              <select value={vehId} onChange={(e)=>setVehId(e.target.value)}>
+                <option value="">-- select vehicle --</option>
+                {vehicles.map((v:any)=><option key={v.id} value={v.id}>{vehicleLabel(v)}</option>)}
+              </select>
+            </label>
+            <div className="row">
+              <button onClick={seedDriver}>+ Driver</button>
+              <button onClick={seedVehicle}>+ Vehicle</button>
             </div>
           </div>
-        )}
-      </section>
 
-      <ContractorsAdmin onResult={(title, payload) => pushOut(title, payload)} />
-      <BinAssignmentsAdmin onResult={(title, payload) => pushOut(title, payload)} />
+          {drvEdit && (
+            <div style={{marginTop:12}}>
+              <h3 style={{margin:"8px 0"}}>Edit Driver</h3>
+              <div className="grid3">
+                <label>Name
+                  <input value={drvEdit.name} onChange={(e)=>{ setDrvEdit({...drvEdit!, name:e.target.value}); setDrvErrs({...drvErrs, name:""}); }}/>
+                  {drvErrs.name ? <small style={{color:"#f39"}}>{drvErrs.name}</small> : null}
+                </label>
+                <label>Phone<input value={drvEdit.phone??""} onChange={(e)=>setDrvEdit({...drvEdit!, phone:e.target.value})}/></label>
+                <label>License #<input value={drvEdit.license_no??""} onChange={(e)=>setDrvEdit({...drvEdit!, license_no:e.target.value})}/></label>
+              </div>
+              <div className="row" style={{marginTop:8}}>
+                <label className="row"><input type="checkbox" checked={drvEdit.active} onChange={(e)=>setDrvEdit({...drvEdit!, active:e.target.checked})}/> Active</label>
+                <button disabled={!!validateDriver(drvEdit).name} onClick={saveDriver}>Save</button>
+                <button className="ghost" onClick={deleteDriver}>Delete</button>
+              </div>
+            </div>
+          )}
 
-      {/* Skip create */}
-      <SkipCreateForm onSeed={(seededQr) => setQr(seededQr)} />
-      <section className="card">
-        <h2>Seed & Driver Flow</h2>
-        <div className="grid3">
-          <label>QR<input value={qr} onChange={(e)=>setQr(e.target.value)}/></label>
-          <label>Zones A/B/C<div className="row">
-            <input value={zoneA} onChange={(e)=>setZoneA(e.target.value)} style={{width: "33%"}}/>
-            <input value={zoneB} onChange={(e)=>setZoneB(e.target.value)} style={{width: "33%"}}/>
-            <input value={zoneC} onChange={(e)=>setZoneC(e.target.value)} style={{width: "33%"}}/>
-          </div></label>
-          <label>Destination<input value={destName} onChange={(e)=>setDestName(e.target.value)}/></label>
-        </div>
-        <div className="grid3">
-          <label>Driver name<input value={driverName} onChange={(e)=>setDriverName(e.target.value)}/></label>
-          <label>Vehicle reg<input value={vehReg} onChange={(e)=>setVehReg(e.target.value)}/></label>
-          <label>Dest. Type<select value={destType} onChange={(e)=>setDestType(e.target.value)}>
-            <option>RECYCLING</option><option>LANDFILL</option><option>TRANSFER</option>
-          </select></label>
-        </div>
-        <div className="grid3">
-          <label>Gross (kg)<input type="number" value={gross} onChange={(e)=>setGross(safeNum(e.target.value))}/></label>
-          <label>Tare (kg)<input type="number" value={tare} onChange={(e)=>setTare(safeNum(e.target.value))}/></label>
-          <label>Site ID<input value={siteId} onChange={(e)=>setSiteId(e.target.value)}/></label>
-        </div>
-        <div className="row wrap" style={{marginTop:8}}>
-          <button disabled={busy} onClick={()=>run("DEV ensure-skip", ()=>api.ensureSkipDev(qr))}>Seed skip</button>
-          <button disabled={busy} onClick={()=>run("driver/scan", ()=>api.scan(qr))}>Scan</button>
-          <button disabled={busy} onClick={()=>run("driver/deliver-empty", ()=>api.deliverEmpty({ skip_qr:qr, to_zone_id:zoneC, driver_name:driverName, vehicle_reg:vehReg }))}>Deliver Empty</button>
-          <button disabled={busy} onClick={()=>run("driver/relocate-empty", ()=>api.relocateEmpty({ skip_qr:qr, from_zone_id:zoneA, to_zone_id:zoneB, driver_name:driverName }))}>Relocate Empty</button>
-          <button disabled={busy} onClick={()=>run("driver/collect-full", ()=>api.collectFull({ skip_qr:qr, destination_type:destType, destination_name:destName, weight_source:"WEIGHBRIDGE", gross_kg:gross, tare_kg:tare, driver_name:driverName, site_id:siteId, vehicle_reg:vehReg }))}>Collect Full</button>
-          <button disabled={busy} onClick={()=>run("driver/return-empty", ()=>api.returnEmpty({ skip_qr:qr, to_zone_id:zoneC, driver_name:driverName }))}>Return Empty</button>
-          <button className="primary" disabled={busy} onClick={runAll}>Run Full Flow</button>
-        </div>
-      </section>
+          {vehEdit && (
+            <div style={{marginTop:12}}>
+              <h3 style={{margin:"8px 0"}}>Edit Vehicle</h3>
+              <div className="grid3">
+                <label>Reg No
+                  <input value={vehEdit.reg_no} onChange={(e)=>{ setVehEdit({...vehEdit!, reg_no:e.target.value}); setVehErrs({...vehErrs, reg_no:""}); }}/>
+                  {vehErrs.reg_no ? <small style={{color:"#f39"}}>{vehErrs.reg_no}</small> : null}
+                </label>
+                <label>Make<input value={vehEdit.make??""} onChange={(e)=>setVehEdit({...vehEdit!, make:e.target.value})}/></label>
+                <label>Model<input value={vehEdit.model??""} onChange={(e)=>setVehEdit({...vehEdit!, model:e.target.value})}/></label>
+              </div>
+              <div className="row" style={{marginTop:8}}>
+                <label className="row"><input type="checkbox" checked={vehEdit.active} onChange={(e)=>setVehEdit({...vehEdit!, active:e.target.checked})}/> Active</label>
+                <button disabled={!!validateVehicle(vehEdit).reg_no} onClick={saveVehicle}>Save</button>
+                <button className="ghost" onClick={deleteVehicle}>Delete</button>
+              </div>
+            </div>
+          )}
+        </section>
 
-      <section className="card">
-        <h2>Results</h2>
-        {out.length===0 ? <p className="muted">No calls yet.</p> : null}
-        {out.map((o,i)=>{
-          const wtnUrl = findWtnUrl(o.payload);
-          const htmlUrl = wtnUrl ? `${joinUrl(cfg.base, wtnUrl)}?format=html` : null;
-          const pdfUrl = wtnUrl ? `${joinUrl(cfg.base, wtnUrl)}?format=pdf` : null;
-          return (
-            <details key={i} open={i===0} className="result">
-              <summary><strong>{o.title}</strong> <span className="muted">at {o.at}</span></summary>
-              <pre>{pretty(o.payload)}</pre>
-              {wtnUrl && (
-                <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                  <a className="btn" href={htmlUrl!} target="_blank" rel="noreferrer">Open WTN (HTML)</a>
-                  <a className="btn" href={pdfUrl!} target="_blank" rel="noreferrer">Open PDF</a>
-                </div>
-              )}
-            </details>
-          );
-        })}
-      </section>
-    </div>
+        <ContractorsAdmin onResult={(title, payload) => pushOut(title, payload)} />
+        <BinAssignmentsAdmin onResult={(title, payload) => pushOut(title, payload)} />
+
+        {/* Skip create */}
+        <SkipCreateForm onSeed={(seededQr) => setQr(seededQr)} />
+        <section className="card">
+          <h2>Seed & Driver Flow</h2>
+          <div className="grid3">
+            <label>QR<input value={qr} onChange={(e)=>setQr(e.target.value)}/></label>
+            <label>Zones A/B/C<div className="row">
+              <input value={zoneA} onChange={(e)=>setZoneA(e.target.value)} style={{width: "33%"}}/>
+              <input value={zoneB} onChange={(e)=>setZoneB(e.target.value)} style={{width: "33%"}}/>
+              <input value={zoneC} onChange={(e)=>setZoneC(e.target.value)} style={{width: "33%"}}/>
+            </div></label>
+            <label>Destination<input value={destName} onChange={(e)=>setDestName(e.target.value)}/></label>
+          </div>
+          <div className="grid3">
+            <label>Driver name<input value={driverName} onChange={(e)=>setDriverName(e.target.value)}/></label>
+            <label>Vehicle reg<input value={vehReg} onChange={(e)=>setVehReg(e.target.value)}/></label>
+            <label>Dest. Type<select value={destType} onChange={(e)=>setDestType(e.target.value)}>
+              <option>RECYCLING</option><option>LANDFILL</option><option>TRANSFER</option>
+            </select></label>
+          </div>
+          <div className="grid3">
+            <label>Gross (kg)<input type="number" value={gross} onChange={(e)=>setGross(safeNum(e.target.value))}/></label>
+            <label>Tare (kg)<input type="number" value={tare} onChange={(e)=>setTare(safeNum(e.target.value))}/></label>
+            <label>Site ID<input value={siteId} onChange={(e)=>setSiteId(e.target.value)}/></label>
+          </div>
+          <div className="row wrap" style={{marginTop:8}}>
+            <button disabled={busy} onClick={()=>run("DEV ensure-skip", ()=>api.ensureSkipDev(qr))}>Seed skip</button>
+            <button disabled={busy} onClick={()=>run("driver/scan", ()=>api.scan(qr))}>Scan</button>
+            <button disabled={busy} onClick={()=>run("driver/deliver-empty", ()=>api.deliverEmpty({ skip_qr:qr, to_zone_id:zoneC, driver_name:driverName, vehicle_reg:vehReg }))}>Deliver Empty</button>
+            <button disabled={busy} onClick={()=>run("driver/relocate-empty", ()=>api.relocateEmpty({ skip_qr:qr, from_zone_id:zoneA, to_zone_id:zoneB, driver_name:driverName }))}>Relocate Empty</button>
+            <button disabled={busy} onClick={()=>run("driver/collect-full", ()=>api.collectFull({ skip_qr:qr, destination_type:destType, destination_name:destName, weight_source:"WEIGHBRIDGE", gross_kg:gross, tare_kg:tare, driver_name:driverName, site_id:siteId, vehicle_reg:vehReg }))}>Collect Full</button>
+            <button disabled={busy} onClick={()=>run("driver/return-empty", ()=>api.returnEmpty({ skip_qr:qr, to_zone_id:zoneC, driver_name:driverName }))}>Return Empty</button>
+            <button className="primary" disabled={busy} onClick={runAll}>Run Full Flow</button>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>Results</h2>
+          {out.length===0 ? <p className="muted">No calls yet.</p> : null}
+          {out.map((o,i)=>{
+            const wtnUrl = findWtnUrl(o.payload);
+            const htmlUrl = wtnUrl ? `${joinUrl(cfg.base, wtnUrl)}?format=html` : null;
+            const pdfUrl = wtnUrl ? `${joinUrl(cfg.base, wtnUrl)}?format=pdf` : null;
+            return (
+              <details key={i} open={i===0} className="result">
+                <summary><strong>{o.title}</strong> <span className="muted">at {o.at}</span></summary>
+                <pre>{pretty(o.payload)}</pre>
+                {wtnUrl && (
+                  <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                    <a className="btn" href={htmlUrl!} target="_blank" rel="noreferrer">Open WTN (HTML)</a>
+                    <a className="btn" href={pdfUrl!} target="_blank" rel="noreferrer">Open PDF</a>
+                  </div>
+                )}
+              </details>
+            );
+          })}
+        </section>
+      </div>
     </Safe>
   );
 }
