@@ -1,13 +1,13 @@
 # path: backend/app/core/deps.py
 
 from typing import AsyncGenerator
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-# Use settings instead of module-level constants
+# import settings (normalized in config.py)
 from .config import settings
 
-# Single engine/session for the app; shared across routers
+# Single engine/session for the app; share everywhere
 engine = create_async_engine(settings.DATABASE_URL, future=True, echo=False)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, autoflush=False, autocommit=False)
 
@@ -16,7 +16,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 async def admin_gate(x_api_key: str = Header(None, alias="X-API-Key")) -> None:
-    # Why: avoid accidental admin exposure in prod
     if not settings.EXPOSE_ADMIN_ROUTES:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if x_api_key != settings.ADMIN_API_KEY:

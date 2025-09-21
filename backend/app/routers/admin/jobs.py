@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, admin_gate, engine as async_engine  # async engine
+from app.core.deps import get_db, admin_gate
+from app.db import engine as db_engine
 from app.models.job import Base as JobsBase, Job
 from app.schemas.job import JobCreate, JobOut, JobPatch
 
@@ -22,8 +23,7 @@ router = APIRouter(
 )
 
 async def _ensure_jobs_table() -> None:
-    # Use ASYNC engine to avoid '_GeneratorContextManager' error
-    async with async_engine.begin() as conn:
+    async with db_engine.begin() as conn:
         await conn.run_sync(JobsBase.metadata.create_all)
 
 @router.post("/jobs", response_model=JobOut, status_code=status.HTTP_201_CREATED)

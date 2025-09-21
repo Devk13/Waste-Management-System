@@ -258,7 +258,7 @@ export const api = {
   patchJob: (id: string, p: any) => patch(`/admin/jobs/${id}`, p),
 
   driverSchedule: (driverId: string) =>
-    get(`/driver/schedule?driver_id=${encodeURIComponent(driverId)}`),
+    get(`/driver/schedule?driver_id=${encodeURIComponent(driverId)}&driver=${encodeURIComponent(driverId)}`),
   markTaskDone: (taskId: string) => patch(`/driver/schedule/${taskId}/done`, {}),
 };
 
