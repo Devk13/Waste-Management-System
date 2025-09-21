@@ -30,8 +30,8 @@ function findWtnUrl(resp: unknown): string | null {
 }
 
 function joinUrl(base: string | undefined, path: string): string {
-  const b = ((base ?? "") as string).replace(/\/+$/, ""); // safe
-  const p = path.startsWith("/") ? path : `/${path}`;
+  const b = String(base ?? "").replace(/\/+$/, ""); // strip trailing slashes, tolerate undefined
+  const p = path?.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
 }
 
