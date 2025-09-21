@@ -1,25 +1,23 @@
 # path: backend/app/api/admin_drivers.py
-from typing import Optional
-from uuid import UUID
+from __future__ import annotations
 
+from typing import List, Optional
+
+from pydantic.config import ConfigDict
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pydantic import BaseModel, Field
-from pydantic.config import ConfigDict  # pydantic v2
-from app.api.deps import get_db
-from typing import Any, Dict, List, Optional
+from app.core.deps import get_db, admin_gate
 
 
-# Resolve model safely – prefer concrete module path
+# Prefer the concrete model your DB uses (driver_profiles is common in this repo)
 try:
     from app.models.driver import DriverProfile as DriverModel
 except Exception:
-    from app.models import DriverProfile as DriverModel
-
-from app.api.guards import admin_gate
+    # fallback if your project exposes `Driver` directly
+    from app.models.driver import Driver as DriverModel  # type: ignore[misc]
 
 router = APIRouter(
     prefix="/admin/drivers",
@@ -27,7 +25,9 @@ router = APIRouter(
     dependencies=[Depends(admin_gate)],
 )
 
-# ---- Pydantic schemas ----
+# ---- Local create schema  ----
+from pydantic import BaseModel, Field
+
 
 class DriverCreate(BaseModel):
     name: str = Field(min_length=1)
@@ -42,32 +42,18 @@ class DriverUpdate(BaseModel):
     active: Optional[bool] = None
 
 class DriverOut(BaseModel):
-    id: UUID | str
+    id: str
     full_name: str
     phone: Optional[str] = None
     license_no: Optional[str] = None
     active: bool
 
-    # pydantic v2: enable ORM serialization
+    # pydantic v2: allow ORM objects to serialize
     model_config = ConfigDict(from_attributes=True)
 
 
-# --------- Helpers ---------
-def _set_attrs_safe(obj: Any, data: Dict[str, Any]) -> None:
-    for k, v in data.items():
-        if v is None:
-            continue
-        if hasattr(obj, k):
-            setattr(obj, k, v)
+# -------------------- Routes --------------------
 
-def _normalize_driver_payload(d: dict) -> dict:
-    d = dict(d or {})
-    if "name" in d and "full_name" not in d:
-        d["full_name"] = d.pop("name")
-    return {k: v for k, v in d.items() if v is not None}
-
-
-# --------- Routes ---------
 @router.get("", response_model=List[DriverOut])
 async def list_drivers(
     db: AsyncSession = Depends(get_db),
@@ -75,40 +61,51 @@ async def list_drivers(
     offset: int = Query(0, ge=0),
     q: Optional[str] = Query(None, description="Filter by name (contains)"),
 ):
-    stmt = select(DriverModel).order_by(getattr(DriverModel, "created_at", getattr(DriverModel, "id")))
+    stmt = select(DriverModel)
+
     if q:
-        # naive contains if 'name' exists
-        try:
-            stmt = stmt.where(DriverModel.name.ilike(f"%{q}%"))
-        except Exception:
-            pass
+        pattern = f"%{q.lower()}%"
+        # Try full_name, then name
+        if hasattr(DriverModel, "full_name"):
+            stmt = stmt.where(func.lower(getattr(DriverModel, "full_name")).like(pattern))
+        elif hasattr(DriverModel, "name"):
+            stmt = stmt.where(func.lower(getattr(DriverModel, "name")).like(pattern))
+
+    # Order by created_at if present, otherwise by id
+    order_col = getattr(DriverModel, "created_at", getattr(DriverModel, "id", None))
+    if order_col is not None:
+        stmt = stmt.order_by(order_col)
+
     stmt = stmt.limit(limit).offset(offset)
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
 
 @router.post("", response_model=DriverOut, status_code=status.HTTP_201_CREATED)
-async def create_driver(
-    payload: DriverCreate,
-    db: AsyncSession = Depends(get_db),
-):
+async def create_driver(payload: DriverCreate, db: AsyncSession = Depends(get_db)):
     name = (payload.name or "").strip()
     if not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="name required")
 
-    # your model has 'full_name' (typical) – adjust here if yours is different
-    stmt = select(DriverModel).where(func.lower(DriverModel.full_name) == name.lower())
-    exists = (await db.execute(stmt)).scalar_one_or_none()
-    if exists:
-        # Either return 409 or make it idempotent by returning the existing row.
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="name already exists")
+    # Uniqueness check on the appropriate column
+    col = getattr(DriverModel, "full_name", getattr(DriverModel, "name", None))
+    if col is not None:
+        exists = (await db.execute(select(DriverModel).where(func.lower(col) == name.lower()))).scalar_one_or_none()
+        if exists:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="name already exists")
 
-    drv = DriverModel(
-        full_name=name,
-        phone=payload.phone,
-        license_no=payload.license_no,
-        active=bool(payload.active) if payload.active is not None else True,
-    )
+    drv_kwargs = {
+        "phone": payload.phone,
+        "license_no": payload.license_no,
+        "active": bool(payload.active) if payload.active is not None else True,
+    }
+    # Map to the right name column
+    if hasattr(DriverModel, "full_name"):
+        drv_kwargs["full_name"] = name
+    else:
+        drv_kwargs["name"] = name
+
+    drv = DriverModel(**drv_kwargs)  # type: ignore[arg-type]
     db.add(drv)
     try:
         await db.commit()
@@ -124,16 +121,11 @@ async def create_driver(
 
 @router.get("/{driver_id}", response_model=DriverOut)
 async def get_driver(driver_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        uid = UUID(driver_id)
-        stmt = select(DriverModel).where(DriverModel.id == uid)
-    except Exception:
-        stmt = select(DriverModel).where(DriverModel.id == driver_id)
-    res = await db.execute(stmt)
-    drv = res.scalar_one_or_none()
-    if not drv:
-        raise HTTPException(404, "driver not found")
-    return drv
+    # Primary keys are stored as strings in this project → never cast to UUID
+    obj = await db.get(DriverModel, str(driver_id))
+    if not obj:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="driver not found")
+    return obj
 
 
 @router.patch("/{driver_id}", response_model=DriverOut)
@@ -142,44 +134,35 @@ async def update_driver(
     payload: DriverUpdate = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        uid = UUID(driver_id)
-        stmt = select(DriverModel).where(DriverModel.id == uid)
-    except Exception:
-        stmt = select(DriverModel).where(DriverModel.id == driver_id)
+    obj = await db.get(DriverModel, str(driver_id))
+    if not obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="driver not found")
 
-    drv = (await db.execute(stmt)).scalar_one_or_none()
-    if not drv:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="driver not found")
-
-    # map incoming 'name' to model's 'full_name'
     data = payload.model_dump(exclude_unset=True)
-    if "name" in data:
+
+    # Normalize 'name' -> 'full_name' if your model uses full_name
+    if "name" in data and hasattr(DriverModel, "full_name"):
         data["full_name"] = data.pop("name")
 
     for k, v in data.items():
-        setattr(drv, k, v)
+        setattr(obj, k, v)
 
     try:
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="duplicate value")
-    await db.refresh(drv)
-    return drv
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="duplicate value")
+
+    await db.refresh(obj)
+    return obj
 
 
 @router.delete("/{driver_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_driver(driver_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        uid = UUID(driver_id)
-        stmt = select(DriverModel).where(DriverModel.id == uid)
-    except Exception:
-        stmt = select(DriverModel).where(DriverModel.id == driver_id)
-    res = await db.execute(stmt)
-    drv = res.scalar_one_or_none()
-    if not drv:
-        return  # idempotent
-    await db.delete(drv)
+    obj = await db.get(DriverModel, str(driver_id))
+    if not obj:  # idempotent delete
+        return
+    await db.delete(obj)
     await db.commit()
     return
+

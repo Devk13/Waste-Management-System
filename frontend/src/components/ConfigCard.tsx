@@ -1,31 +1,35 @@
-// frontend/src/components/ConfigCard.tsx
-
-import { useEffect, useState } from "react"
-import { loadCfg, saveCfg, DevCfg } from "../lib/devConfig"
+// path: frontend/src/components/ConfigCard.tsx
+import { useEffect, useState } from "react";
+import { loadCfg, saveCfg, DevCfg } from "../lib/devConfig";
 
 function normalizeBaseUrl(s: string): string {
-  let v = (s || "").trim()
-  v = v.replace(/\s+/g, "")
-  if (!v) return ""
-  v = v.replace(/\/+$/, "") // strip trailing slashes
-  return v
+  let v = (s || "").trim();
+  v = v.replace(/\s+/g, "");
+  if (!v) return "";
+  return v.replace(/\/+$/, ""); // strip trailing slashes
 }
 
 export default function ConfigCard() {
-  const [cfg, setCfg] = useState<DevCfg>({ baseUrl: "" })
-  const [saved, setSaved] = useState(false)
+  const [cfg, setCfg] = useState<DevCfg>({ baseUrl: "", adminKey: "", driverKey: "", driverRef: "" });
+  const [saved, setSaved] = useState(false);
 
-  useEffect(() => { setCfg(loadCfg()) }, [])
+  useEffect(() => { setCfg(loadCfg()); }, []);
 
   const onSave = () => {
-    const next: DevCfg = { ...cfg, baseUrl: normalizeBaseUrl(cfg.baseUrl) }
-    saveCfg(next)
-    setCfg(next)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 1200)
-  }
+    const next: DevCfg = {
+      ...cfg,
+      baseUrl: normalizeBaseUrl(cfg.baseUrl || ""),
+      adminKey: cfg.adminKey || "",
+      driverKey: cfg.driverKey || "",
+      driverRef: (cfg.driverRef || "").trim(),
+    };
+    saveCfg(next);               // saveCfg keeps driverId in sync for backward-compat
+    setCfg(loadCfg());           // re-read to reflect normalization
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1200);
+  };
 
-  const canSave = !!cfg.baseUrl?.trim()
+  const canSave = !!(cfg.baseUrl && cfg.baseUrl.trim());
 
   return (
     <div className="rounded-xl border p-4 space-y-3">
@@ -39,23 +43,24 @@ export default function ConfigCard() {
         />
         <input
           className="border rounded p-2"
-          type="password" // mask
+          type="password"
           placeholder="Driver API Key"
           value={cfg.driverKey || ""}
           onChange={e => setCfg({ ...cfg, driverKey: e.target.value })}
         />
         <input
           className="border rounded p-2"
-          type="password" // mask
+          type="password"
           placeholder="Admin Key"
           value={cfg.adminKey || ""}
           onChange={e => setCfg({ ...cfg, adminKey: e.target.value })}
         />
+        {/* New: name-or-id field */}
         <input
           className="border rounded p-2 md:col-span-3"
-          placeholder="Driver Id (e.g., drv_123)"
-          value={cfg.driverId || ""}
-          onChange={e => setCfg({ ...cfg, driverId: e.target.value })}
+          placeholder="Driver (name or id), e.g., Alex"
+          value={cfg.driverRef || ""}
+          onChange={e => setCfg({ ...cfg, driverRef: e.target.value })}
         />
       </div>
       <button
@@ -67,5 +72,5 @@ export default function ConfigCard() {
       </button>
       {saved && <span className="text-xs ml-2 opacity-70">Saved.</span>}
     </div>
-  )
+  );
 }

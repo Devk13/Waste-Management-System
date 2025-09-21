@@ -1,23 +1,22 @@
 # path: backend/app/api/admin_vehicles.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, status
-from pydantic import BaseModel, Field, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
-from app.api.guards import admin_gate
+from app.core.deps import get_db, admin_gate
+from app.schemas.vehicle import VehicleUpdate, VehicleOut
 
-# Resolve model safely – prefer concrete module path
+# Prefer the concrete ORM model exported by your project
 try:
     from app.models.vehicle import Vehicle as VehicleModel
-except Exception:  # fallback if re-exported at package root
-    from app.models import Vehicle as VehicleModel
+except Exception:
+    # Fallback if your project re-exports models from the package root
+    from app.models import Vehicle as VehicleModel  # type: ignore[misc]
 
 router = APIRouter(
     prefix="/admin/vehicles",
@@ -25,37 +24,19 @@ router = APIRouter(
     dependencies=[Depends(admin_gate)],
 )
 
+# ---- Local create schema (update/out come from app.schemas.vehicle) ----
+from pydantic import BaseModel, Field
 
-# --------- Schemas ---------
-class VehicleBase(BaseModel):
-    reg_no: Optional[str] = None
+
+class VehicleCreate(BaseModel):
+    reg_no: str = Field(..., min_length=1)
     make: Optional[str] = None
     model: Optional[str] = None
     active: Optional[bool] = True
 
-class VehicleCreate(VehicleBase):
-    reg_no: str = Field(..., min_length=1)
 
-class VehicleUpdate(VehicleBase):
-    pass
+# -------------------- Routes --------------------
 
-class VehicleOut(VehicleBase):
-    model_config = ConfigDict(from_attributes=True)
-    id: str
-
-# --------- Helpers ---------
-def _set_attrs_safe(obj: Any, data: Dict[str, Any]) -> None:
-    for k, v in data.items():
-        if v is None:
-            continue
-        if hasattr(obj, k):
-            setattr(obj, k, v)
-
-def _normalize_vehicle_payload(d: dict) -> dict:
-    d = dict(d or {})
-    return {k: v for k, v in d.items() if v is not None}
-
-# --------- Routes ---------
 @router.get("", response_model=List[VehicleOut])
 async def list_vehicles(
     db: AsyncSession = Depends(get_db),
@@ -63,32 +44,39 @@ async def list_vehicles(
     offset: int = Query(0, ge=0),
     q: Optional[str] = Query(None, description="Filter by reg_no (contains)"),
 ):
-    stmt = select(VehicleModel).order_by(getattr(VehicleModel, "created_at", getattr(VehicleModel, "id")))
+    stmt = select(VehicleModel)
+
     if q:
-        try:
-            stmt = stmt.where(VehicleModel.reg_no.ilike(f"%{q}%"))
-        except Exception:
-            pass
+        pattern = f"%{q.lower()}%"
+        # case-insensitive contains on reg_no if present
+        if hasattr(VehicleModel, "reg_no"):
+            stmt = stmt.where(func.lower(getattr(VehicleModel, "reg_no")).like(pattern))
+
+    # Order by created_at if present, otherwise by id
+    order_col = getattr(VehicleModel, "created_at", getattr(VehicleModel, "id", None))
+    if order_col is not None:
+        stmt = stmt.order_by(order_col)
+
     stmt = stmt.limit(limit).offset(offset)
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
 
 @router.post("", response_model=VehicleOut, status_code=status.HTTP_201_CREATED)
-async def create_vehicle(
-    payload: VehicleCreate,
-    db: AsyncSession = Depends(get_db),
-):
+async def create_vehicle(payload: VehicleCreate, db: AsyncSession = Depends(get_db)):
     reg = (payload.reg_no or "").strip()
     if not reg:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="reg_no required")
 
     # Case-insensitive dedupe check
-    stmt = select(VehicleModel).where(func.lower(VehicleModel.reg_no) == reg.lower())
-    exists = (await db.execute(stmt)).scalar_one_or_none()
-    if exists:
-        # Conflict – your frontend will show a field error on reg_no
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="reg_no already exists")
+    if hasattr(VehicleModel, "reg_no"):
+        exists = (
+            await db.execute(
+                select(VehicleModel).where(func.lower(getattr(VehicleModel, "reg_no")) == reg.lower())
+            )
+        ).scalar_one_or_none()
+        if exists:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="reg_no already exists")
 
     v = VehicleModel(
         reg_no=reg,
@@ -102,22 +90,20 @@ async def create_vehicle(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, detail="reg_no already exists")
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="create_failed")
     await db.refresh(v)
     return v
 
 
 @router.get("/{vehicle_id}", response_model=VehicleOut)
 async def get_vehicle(vehicle_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        uid = UUID(vehicle_id)
-        stmt = select(VehicleModel).where(VehicleModel.id == uid)
-    except Exception:
-        stmt = select(VehicleModel).where(VehicleModel.id == vehicle_id)
-    res = await db.execute(stmt)
-    v = res.scalar_one_or_none()
-    if not v:
-        raise HTTPException(404, "vehicle not found")
-    return v
+    # IDs are handled as strings in this project; do not cast to UUID
+    obj = await db.get(VehicleModel, str(vehicle_id))
+    if not obj:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="vehicle not found")
+    return obj
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleOut)
@@ -126,34 +112,29 @@ async def update_vehicle(
     payload: VehicleUpdate = Body(...),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        uid = UUID(vehicle_id)
-        stmt = select(VehicleModel).where(VehicleModel.id == uid)
-    except Exception:
-        stmt = select(VehicleModel).where(VehicleModel.id == vehicle_id)
-    res = await db.execute(stmt)
-    v = res.scalar_one_or_none()
-    if not v:
-        raise HTTPException(404, "vehicle not found")
+    obj = await db.get(VehicleModel, str(vehicle_id))
+    if not obj:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="vehicle not found")
 
-    data = {k: v for k, v in payload.model_dump().items() if v is not None}
-    _set_attrs_safe(v, data)
-    await db.commit()
-    await db.refresh(v)
-    return v
+    data = payload.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(obj, k, v)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="duplicate value")
+
+    await db.refresh(obj)
+    return obj
 
 
 @router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_vehicle(vehicle_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        uid = UUID(vehicle_id)
-        stmt = select(VehicleModel).where(VehicleModel.id == uid)
-    except Exception:
-        stmt = select(VehicleModel).where(VehicleModel.id == vehicle_id)
-    res = await db.execute(stmt)
-    v = res.scalar_one_or_none()
-    if not v:
-        return  # idempotent
-    await db.delete(v)
+    obj = await db.get(VehicleModel, str(vehicle_id))
+    if not obj:  # idempotent delete
+        return
+    await db.delete(obj)
     await db.commit()
     return
