@@ -120,18 +120,15 @@ createContractor: async (p:{ org_name:string; contact_name?:string; email?:strin
 updateContractor: (id:string, p:Partial<{ org_name:string; contact_name:string; email:string; phone:string; billing_address:string; active:boolean }>) => patch(`/admin/contractors/${id}`, p),
 deleteContractor: (id:string) => del(`/admin/contractors/${id}`),
 
-// --- bin assignments ---
-listBinAssignments: () => get("/admin/bin-assignments"),
-createBinAssignment: async (p: { contractor_id: string; zone_id?: string; bin_size?: string; color?: string; active?: boolean; notes?: string }) => {
-  try { return await post("/admin/bin-assignments", p); } catch (e:any) { throw parseApiError(e); }
-},
-updateBinAssignment: async (id: string, p: Partial<{ contractor_id: string; zone_id: string; bin_size: string; color: string; active: boolean; notes: string }>) => {
-  try { return await patch(`/admin/bin-assignments/${id}`, p); } catch (e:any) { throw parseApiError(e); }
-},
-deleteBinAssignment: async (id: string) => {
-  try { return await del(`/admin/bin-assignments/${id}`); } catch (e:any) { throw parseApiError(e); }
-},
+// --- bin assignments (match backend) ---
+listCurrentOwner: (qr: string) =>
+  get(`/admin/bin-assignments/current?qr=${encodeURIComponent(qr)}`),
 
+assignBin: (p: { qr: string; contractor_id: string }) =>
+  post("/admin/bin-assignments/assign", p),
+
+unassignBin: (p: { qr: string; contractor_id?: string }) =>
+  post("/admin/bin-assignments/unassign", p),
 };
 
 // optional helper you added is fine to keep:
