@@ -1,5 +1,5 @@
 // path: frontend/src/components/driver/MyTasksPanel.tsx
-// ======================================================================
+
 import { useEffect, useState } from "react"
 import { driverSchedule, markTaskDone, Job } from "../../api/jobs"
 import { loadCfg } from "../../lib/devConfig"
@@ -11,7 +11,7 @@ export default function MyTasksPanel() {
   const [loading, setLoading] = useState(false)
 
   const refresh = async () => {
-    if (!cfg.driverId) { setErr("Missing driverId in Dev Console config"); return }
+    if (!cfg.driverId) { setErr("Missing Driver Id in Config"); return }
     setLoading(true); setErr(null)
     try { setTasks(await driverSchedule(cfg.driverId)) } catch (e:any) { setErr(e.message) } finally { setLoading(false) }
   }

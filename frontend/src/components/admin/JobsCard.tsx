@@ -1,5 +1,5 @@
-// path: frontend/src/components/admin/JobsCard.tsx
-// ======================================================================
+// frontend/src/components/admin/JobsCard.tsx
+
 import { useEffect, useMemo, useState } from "react"
 import { createJob, listJobs, patchJob, Job, JobType, JobStatus } from "../../api/jobs"
 import { loadCfg } from "../../lib/devConfig"
@@ -44,7 +44,7 @@ export default function JobsCard() {
       destination_name: form.destination_name ?? undefined,
       window_start: form.window_start ?? undefined,
       window_end: form.window_end ?? undefined,
-      assigned_driver_id: form.assigned_driver_id ?? undefined,
+      assigned_driver_id: form.assigned_driver_id ?? undefined, // ensure this matches Driver Id in Config
       assigned_vehicle_id: form.assigned_vehicle_id ?? undefined,
       notes: form.notes ?? undefined,
       status: "PENDING",
@@ -64,17 +64,17 @@ export default function JobsCard() {
         <select className="border rounded p-2" value={form.type as string} onChange={e=>set("type", e.target.value)}>
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <input className="border rounded p-2" placeholder="skip_qr" value={form.skip_qr||""} onChange={e=>set("skip_qr", e.target.value)} />
-        <input className="border rounded p-2" placeholder="from_zone_id" value={form.from_zone_id||""} onChange={e=>set("from_zone_id", e.target.value)} />
-        <input className="border rounded p-2" placeholder="to_zone_id" value={form.to_zone_id||""} onChange={e=>set("to_zone_id", e.target.value)} />
-        <input className="border rounded p-2" placeholder="site_id" value={form.site_id||""} onChange={e=>set("site_id", e.target.value)} />
-        <input className="border rounded p-2" placeholder="destination_type" value={form.destination_type||""} onChange={e=>set("destination_type", e.target.value)} />
-        <input className="border rounded p-2" placeholder="destination_name" value={form.destination_name||""} onChange={e=>set("destination_name", e.target.value)} />
-        <input className="border rounded p-2" placeholder="window_start ISO" value={form.window_start as any||""} onChange={e=>set("window_start", e.target.value)} />
-        <input className="border rounded p-2" placeholder="window_end ISO" value={form.window_end as any||""} onChange={e=>set("window_end", e.target.value)} />
-        <input className="border rounded p-2" placeholder="assigned_driver_id" value={form.assigned_driver_id||""} onChange={e=>set("assigned_driver_id", e.target.value)} />
-        <input className="border rounded p-2" placeholder="assigned_vehicle_id" value={form.assigned_vehicle_id||""} onChange={e=>set("assigned_vehicle_id", e.target.value)} />
-        <input className="border rounded p-2 md:col-span-3" placeholder="notes" value={form.notes||""} onChange={e=>set("notes", e.target.value)} />
+        <input className="border rounded p-2" placeholder="skip_qr" value={(form as any).skip_qr||""} onChange={e=>set("skip_qr" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="from_zone_id" value={(form as any).from_zone_id||""} onChange={e=>set("from_zone_id" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="to_zone_id" value={(form as any).to_zone_id||""} onChange={e=>set("to_zone_id" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="site_id" value={(form as any).site_id||""} onChange={e=>set("site_id" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="destination_type" value={(form as any).destination_type||""} onChange={e=>set("destination_type" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="destination_name" value={(form as any).destination_name||""} onChange={e=>set("destination_name" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="window_start ISO" value={(form as any).window_start||""} onChange={e=>set("window_start" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="window_end ISO" value={(form as any).window_end||""} onChange={e=>set("window_end" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="assigned_driver_id" value={(form as any).assigned_driver_id||""} onChange={e=>set("assigned_driver_id" as any, e.target.value)} />
+        <input className="border rounded p-2" placeholder="assigned_vehicle_id" value={(form as any).assigned_vehicle_id||""} onChange={e=>set("assigned_vehicle_id" as any, e.target.value)} />
+        <input className="border rounded p-2 md:col-span-3" placeholder="notes" value={(form as any).notes||""} onChange={e=>set("notes" as any, e.target.value)} />
         <button className="bg-black text-white rounded p-2">Create Job</button>
       </form>
 

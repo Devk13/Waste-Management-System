@@ -1,6 +1,5 @@
-// ======================================================================
 // path: frontend/src/App.tsx
-// ======================================================================
+
 import React, { useEffect, useMemo, useState } from "react";
 import { api, getConfig, setConfig, pretty, ApiError } from "./api";
 import "./styles.css";
@@ -10,6 +9,10 @@ import SkipCreateForm from "./components/SkipCreationForm";
 import { QRCodeSVG } from "qrcode.react";
 import ContractorsAdmin from "./components/ContractorsAdmin";
 import BinAssignmentsAdmin from "./components/BinAssignmentsAdmin";
+import ConfigCard from "./components/ConfigCard"
+import JobsCard from "./components/admin/JobsCard"
+import MyTasksPanel from "./components/driver/MyTasksPanel"
+import { loadCfg as loadDevCfg, saveCfg as saveDevCfg } from "./lib/devConfig";
 
 
 type PanelResult = { title: string; payload: any; at: string };
@@ -33,6 +36,9 @@ function joinUrl(base: string, path: string): string {
 
 export default function App() {
   const [cfg, setCfg] = useState(getConfig());
+  const [driverIdCfg, setDriverIdCfg] = useState<string>(() => {
+    try { return loadDevCfg().driverId || "" } catch { return "" }
+  });
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<PanelResult[]>([]);
   const [ver, setVer] = useState<Versions | null>(null);
@@ -59,16 +65,42 @@ export default function App() {
   const pushOut = (title:string, payload:any) =>
     setOut((xs)=>[{title, payload, at:new Date().toLocaleTimeString()}, ...xs].slice(0,30));
 
-  const save = () => { setConfig(cfg); setCfg(getConfig()); pushOut("Saved config", cfg); toast.success("Configuration saved"); };
+  const save = () => {
+    setConfig(cfg);
+    saveDevCfg({
+      baseUrl: (cfg.base || "").replace(/\/+$/, ""),
+      adminKey: cfg.adminKey || "",
+      driverKey: cfg.apiKey || "",
+      driverId: driverIdCfg || ""
+    });
+    setCfg(getConfig());
+    pushOut("Saved config", { ...cfg, driverId: driverIdCfg });
+    toast.success("Configuration saved");
+  };
 
   const [contractors, setContractors] = useState<any[]>([]);
   const [contractorId, setContractorId] = useState<string>("");
 
   // load masters
-  useEffect(()=>{ (async ()=>{
-    try { setDrivers(await api.listDrivers()); } catch(e:any){ toast.error("Failed to load drivers", e?.message); }
-    try { setVehicles(await api.listVehicles()); } catch(e:any){ toast.error("Failed to load vehicles", e?.message); }
-  })(); }, [cfg.base, cfg.adminKey]);
+  useEffect(() => {
+    if (!cfg.base || !cfg.adminKey) return; // avoid noisy 401s before config
+    let cancelled = false;
+    (async () => {
+      try {
+        const [ds, vs] = await Promise.all([
+          api.listDrivers(),
+          api.listVehicles(),
+        ]);
+        if (!cancelled) {
+          setDrivers(ds);
+          setVehicles(vs);
+        }
+      } catch (e: any) {
+        toast.error("Failed to load drivers/vehicles", e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cfg.base, cfg.adminKey]);
 
   // reflect selections into text fields
   useEffect(()=>{ const d = drivers.find(x=>x.id===driverId); if (d) setDriverName(driverLabel(d)); }, [driverId, drivers]);
@@ -225,6 +257,7 @@ export default function App() {
           <label>Base URL<input value={cfg.base} onChange={(e)=>setCfg({...cfg, base:e.target.value})}/></label>
           <label>Driver API Key<input value={cfg.apiKey??""} onChange={(e)=>setCfg({...cfg, apiKey:e.target.value})}/></label>
           <label>Admin Key<input value={cfg.adminKey??""} onChange={(e)=>setCfg({...cfg, adminKey:e.target.value})}/></label>
+          <label className="full">Driver Id <input value={driverIdCfg} onChange={(e)=>setDriverIdCfg(e.target.value)} placeholder="e.g. drv_123"/> </label>
         </div>
         <div className="row"><button onClick={save}>Save</button></div>
       </section>
@@ -251,6 +284,18 @@ export default function App() {
           const href = `${joinUrl(cfg.base, u)}?format=pdf`;
           window.open(href, "_blank");
         }}>Open Latest WTN (PDF)</button>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Dispatch (Jobs & My Tasks)</h2>
+        <div className="row wrap" style={{ gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 320 }}>
+            <JobsCard />
+          </div>
+          <div style={{ flex: 1, minWidth: 320 }}>
+            <MyTasksPanel />
+          </div>
         </div>
       </section>
 
