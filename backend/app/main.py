@@ -16,15 +16,20 @@ from app.core.config import (
     SKIP_COLOR_SPEC,
     get_skip_size_presets,
 )
-from app.db import DB_URL  # keep DB_URL for debug endpoint
-from app.core.deps import engine  # single engine source
+
+# ✅ Single canonical engine
+from app.core.deps import engine as db_engine
+
+# Routers
 from app.api.routes import api_router
 from app.routers.admin import jobs as admin_jobs_router
 from app.routers.driver import schedule_jobs as driver_schedule_router
-from app.models.job import Base as JobsBase  # ensure jobs table in dev bootstrap
 from app.routers.admin import debug_settings as debug_settings_router
 
-# optional: no-op fallback if middleware file is missing
+# Dev bootstrap models (optional)
+from app.models.job import Base as JobsBase
+
+# Optional: no-op fallback if middleware missing
 try:
     from app.middleware_apikey import ApiKeyMiddleware
 except Exception:
@@ -32,13 +37,12 @@ except Exception:
         def __init__(self, app, **_): self.app = app
         async def __call__(self, scope, receive, send): await self.app(scope, receive, send)
 
+# Fallback admin_gate if deps import fails early
 try:
     from app.core.deps import admin_gate
 except Exception:
-    # Why: keep /__debug/settings admin-only even if deps import fails.
     async def admin_gate(x_api_key: str = Header(None, alias="X-API-Key")):
         from fastapi import HTTPException, status
-        from app.core.config import settings
         if not getattr(settings, "EXPOSE_ADMIN_ROUTES", False):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         if x_api_key != getattr(settings, "ADMIN_API_KEY", ""):
@@ -46,11 +50,19 @@ except Exception:
 
 log = logging.getLogger("uvicorn")
 
-# 1) app
+# ---- Single source of truth for DB URL (from active engine) ----
+def _active_db_url() -> str:
+    try:
+        return str(db_engine.url)
+    except Exception:
+        return "unknown"
+
+DB_URL = _active_db_url()
+
+# ---- App ----
 app = FastAPI(title="Waste Management System")
 
-# 2) middleware
-# WHY: Browsers reject '*' with credentials; auto-disable credentials if wildcard is used.
+# ---- CORS (avoid '*' with credentials) ----
 WILDCARD = (CORS_ORIGINS_LIST == ["*"]) or ("*" in CORS_ORIGINS_LIST)
 ALLOW_CREDS = bool(getattr(settings, "CORS_ALLOW_CREDENTIALS", False)) and not WILDCARD
 ALLOW_ORIGINS = ["*"] if WILDCARD else CORS_ORIGINS_LIST
@@ -69,17 +81,17 @@ app.add_middleware(
     hide_403=False,
 )
 
-# 3) routes (mount once)
+# ---- Mount routers once ----
 app.include_router(api_router)
 app.include_router(admin_jobs_router.router)
 app.include_router(driver_schedule_router.router)
 app.include_router(debug_settings_router.router)
 
-# 4) health/meta
+# ---- Health / meta ----
 @app.get("/__health")
 async def health():
     try:
-        async with engine.begin() as conn:
+        async with db_engine.begin() as conn:
             await conn.execute(text("select 1"))
         return {"ok": True}
     except Exception as e:
@@ -96,14 +108,22 @@ def meta_config():
         "skip": {"sizes": get_skip_size_presets(), "colors": SKIP_COLOR_SPEC},
     }
 
-# 5) startup
+@app.get("/__debug/engine")
+def debug_engine():
+    try:
+        url = str(db_engine.url)
+        dialect = db_engine.dialect.name
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    return {"dialect": dialect, "url": url}
+
+# ---- Startup (dev-only create_all) ----
 @app.on_event("startup")
 async def _startup() -> None:
-    print("[startup] WMIS main online", flush=True)
-    print(f"[startup] DB_URL = {DB_URL}", flush=True)
-    print(f"[startup] CORS allow_origins={ALLOW_ORIGINS} allow_credentials={ALLOW_CREDS}", flush=True)
+    log.info("[startup] WMIS main online")
+    log.info("[startup] DB_URL = %s", DB_URL)
+    log.info("[startup] CORS allow_origins=%s allow_credentials=%s", ALLOW_ORIGINS, ALLOW_CREDS)
 
-    # DEV bootstrap: create tables if running locally (ENV=dev)
     env = (os.getenv("ENV") or getattr(settings, "ENV", "dev")).lower()
     if env == "dev":
         try:
@@ -111,7 +131,7 @@ async def _startup() -> None:
             from app.models.labels import Base as LabelsBase
             from app.models.driver import Base as DriverBase
             try:
-                from app.models.models import Base as CoreBase  # movements, weights, transfers, wtns
+                from app.models.models import Base as CoreBase
             except Exception:
                 CoreBase = None  # type: ignore
             try:
@@ -119,45 +139,42 @@ async def _startup() -> None:
             except Exception:
                 VehicleBase = None  # type: ignore
 
-            # include jobs base here (WHY: ensure jobs table exists for local/dev)
             groups = [("skips", SkipBase), ("labels", LabelsBase), ("driver", DriverBase), ("jobs", JobsBase)]
-            if CoreBase is not None:
-                groups.append(("core", CoreBase))
-            if VehicleBase is not None:
-                groups.append(("vehicles", VehicleBase))
+            if CoreBase is not None: groups.append(("core", CoreBase))
+            if VehicleBase is not None: groups.append(("vehicles", VehicleBase))
 
-            async with engine.begin() as conn:
+            async with db_engine.begin() as conn:
                 for name, base in groups:
                     try:
                         await conn.run_sync(base.metadata.create_all)
-                        logging.getLogger("uvicorn").info("[bootstrap] ensured %s", name)
+                        log.info("[bootstrap] ensured %s", name)
                     except Exception as e:
-                        logging.getLogger("uvicorn").warning("[bootstrap] create_all(%s) failed: %s", name, e)
+                        log.warning("[bootstrap] create_all(%s) failed: %s", name, e)
         except Exception as e:
-            logging.getLogger("uvicorn").warning("[bootstrap] engine.begin() failed: %s", e)
+            log.warning("[bootstrap] engine.begin() failed: %s", e)
     else:
-        logging.getLogger("uvicorn").info("[bootstrap] skip create_all in non-dev")
+        log.info("[bootstrap] skip create_all in non-dev")
 
-    # enumerate routes
+    # enumerate mounted routes (debug)
     try:
         for r in app.routes:
             if isinstance(r, APIRoute):
                 m = ",".join(sorted(r.methods or []))
-                logging.getLogger("uvicorn").info("[ROUTE] %-10s %s", m, r.path)
+                log.info("[ROUTE] %-10s %s", m, r.path)
     except Exception as exc:
-        logging.getLogger("uvicorn").warning("Failed to enumerate routes: %s", exc)
+        log.warning("Failed to enumerate routes: %s", exc)
 
-# 6) debug helpers
+# ---- DB helpers (use db_engine) ----
 @app.get("/__debug/db")
 async def debug_db():
     try:
-        dialect = engine.dialect.name
+        dialect = db_engine.dialect.name
         sql = text(
             "select table_name from information_schema.tables where table_schema = current_schema() order by table_name"
             if dialect.startswith("postgres") else
             "select name as table_name from sqlite_master where type='table' order by name"
         )
-        async with engine.begin() as conn:
+        async with db_engine.begin() as conn:
             rows = await conn.execute(sql)
             return {"dialect": dialect, "tables": [r[0] for r in rows.fetchall()]}
     except Exception as e:
@@ -165,13 +182,12 @@ async def debug_db():
 
 @app.get("/__debug/db_url")
 def debug_db_url():
-    from urllib.parse import urlparse
     u = urlparse(DB_URL); nl = u.netloc
     if "@" in nl and ":" in nl.split("@", 1)[0]:
         user, host = nl.split("@", 1); user = user.split(":")[0] + ":***"; nl = user + "@" + host
     return {"scheme": u.scheme, "netloc": nl, "query": u.query}
 
-# --- mounts inspector (pure runtime) -----------------------------------
+# ---- Mounts inspector ----
 @app.get("/__debug/mounts")
 def __debug_mounts() -> List[Dict[str, Any]]:
     seen: Dict[str, Dict[str, Any]] = {}
@@ -200,33 +216,24 @@ def __debug_routes() -> List[Dict[str, Any]]:
             out.append({"path": r.path, "methods": sorted(list(r.methods or [])), "name": r.name})
     return out
 
+# Admin-only: effective settings snapshot (unchanged; uses DB_URL above)
 @app.get("/__debug/settings", dependencies=[Depends(admin_gate)])
 def __debug_settings():
-    """
-    Admin-only: effective server settings (CORS, routes presence, env flags, masked keys, DB driver).
-    """
-    from app.core.config import settings, CORS_ORIGINS_LIST
-    from app.db import DB_URL
-
     def _mask(s: str | None) -> str:
         if not s: return ""
         return s[:2] + "…" + s[-2:] if len(s) > 6 else "***"
 
-    # CORS effective values (mirror your runtime logic)
     wildcard = (CORS_ORIGINS_LIST == ["*"]) or ("*" in CORS_ORIGINS_LIST)
     allow_creds = bool(getattr(settings, "CORS_ALLOW_CREDENTIALS", False)) and not wildcard
     allow_origins = ["*"] if wildcard else CORS_ORIGINS_LIST
 
-    # DB summary
-    u = urlparse(DB_URL)
-    q = parse_qs(u.query)
+    u = urlparse(DB_URL); q = parse_qs(u.query)
     db_info = {
         "scheme": u.scheme,
         "host": u.hostname,
         "ssl": q.get("ssl", [""])[0] or q.get("sslmode", [""])[0] or "",
     }
 
-    # Mounted route checks
     paths = {getattr(r, "path", "") for r in app.routes}
     routes_info = {
         "admin_jobs_mounted": any(p.startswith("/admin/jobs") for p in paths),
@@ -256,7 +263,7 @@ def __debug_settings():
         "routes": routes_info,
     }
 
-# Try to mount /skips router; if it still has bad imports we keep booting
+# Try to mount /skips; keep booting if it fails
 try:
     from app.api.skips import router as skips_router
     app.include_router(skips_router, prefix="/skips", tags=["skips"])

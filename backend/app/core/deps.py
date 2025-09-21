@@ -1,14 +1,37 @@
 # path: backend/app/core/deps.py
-
 from typing import AsyncGenerator
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-
-# import settings (normalized in config.py)
+from urllib.parse import urlsplit, parse_qsl, urlunsplit
 from .config import settings
 
-# Single engine/session for the app; share everywhere
-engine = create_async_engine(settings.DATABASE_URL, future=True, echo=False)
+def _force_asyncpg_clean(url: str) -> str:
+    """
+    Ensure postgresql+asyncpg and strip ssl/sslmode from the query (we pass SSL via connect_args).
+    """
+    if not url:
+        return url
+    u = urlsplit(url)
+    # force asyncpg dialect
+    scheme = u.scheme
+    if scheme.startswith("postgres"):
+        scheme = "postgresql+asyncpg"
+    # drop ssl and sslmode params
+    q = dict(parse_qsl(u.query, keep_blank_values=True))
+    q.pop("ssl", None)
+    q.pop("sslmode", None)
+    return urlunsplit((scheme, u.netloc, u.path, "", u.fragment))
+
+DB_URL = _force_asyncpg_clean(settings.DATABASE_URL)
+
+# require TLS explicitly for asyncpg
+engine = create_async_engine(
+    DB_URL,
+    future=True,
+    echo=False,
+    connect_args={"ssl": True},  # avoids url ssl/sslmode ambiguity
+)
+
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, autoflush=False, autocommit=False)
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
