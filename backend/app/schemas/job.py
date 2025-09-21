@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field
+from pydantic import ConfigDict  # pydantic v2
 
 JobType = Literal["DELIVER_EMPTY", "RELOCATE_EMPTY", "COLLECT_FULL", "RETURN_EMPTY"]
 JobStatus = Literal["PENDING", "IN_PROGRESS", "DONE", "FAILED"]
@@ -53,7 +54,6 @@ class JobPatch(JobUpdate):
 class JobOut(JobBase):
     id: str
     status: JobStatus
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
