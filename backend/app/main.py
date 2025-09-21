@@ -82,9 +82,9 @@ app.add_middleware(
 )
 
 # ---- Mount routers once ----
+app.include_router(driver_schedule_router.router)
 app.include_router(api_router)
 app.include_router(admin_jobs_router.router)
-app.include_router(driver_schedule_router.router)
 app.include_router(debug_settings_router.router)
 
 # ---- Health / meta ----

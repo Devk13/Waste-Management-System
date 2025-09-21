@@ -1,6 +1,7 @@
 # path: backend/app/routers/driver/schedule_jobs.py
 from __future__ import annotations
 from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,7 @@ router = APIRouter(
 )
 
 async def _ensure_jobs_table(db: AsyncSession) -> None:
-    """Ensure 'jobs' table exists; safe in all envs."""
+    """Safe idempotent DDL so fresh envs don't 500."""
     bind = db.get_bind()
     assert bind is not None
     async with bind.begin() as conn:
@@ -24,14 +25,13 @@ async def _ensure_jobs_table(db: AsyncSession) -> None:
 
 @router.get("/schedule", response_model=List[JobOut])
 async def driver_schedule(
-    driver_id: Optional[str] = Query(None, description="Preferred: driver_id"),
-    driver: Optional[str]     = Query(None, description="Legacy alias: driver"),
+    driver_id: Optional[str] = Query(None, description="Preferred param"),
+    driver:    Optional[str] = Query(None, description="Legacy alias"),
     db: AsyncSession = Depends(get_db),
 ) -> List[JobOut]:
     await _ensure_jobs_table(db)
     did = (driver_id or driver or "").strip()
     if not did:
-        # mirror FastAPI 422 shape but clarify either param works
         raise HTTPException(
             status_code=422,
             detail=[{
