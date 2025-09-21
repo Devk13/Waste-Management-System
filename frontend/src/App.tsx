@@ -29,10 +29,38 @@ function findWtnUrl(resp: unknown): string | null {
   return null;
 }
 
+// 1) Make joinUrl safe
 function joinUrl(base: string | undefined, path: string): string {
-  const b = String(base ?? "").replace(/\/+$/, ""); // strip trailing slashes, tolerate undefined
+  const b = String(base ?? "").replace(/\/+$/, "");   // tolerate undefined
   const p = path?.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
+}
+
+// 2) Add a tiny error boundary wrapper (at the top-level component)
+function Safe({ children }: { children: React.ReactNode }) {
+  const [err, setErr] = React.useState<Error | null>(null);
+  React.useEffect(() => {
+    const h = (e: ErrorEvent) => setErr(e.error || new Error(String(e.message || "unknown error")));
+    window.addEventListener("error", h);
+    return () => window.removeEventListener("error", h);
+  }, []);
+  if (!err) return <>{children}</>;
+  // Rescue banner with Reset Config
+  return (
+    <div style={{padding:16}}>
+      <div className="card" style={{borderColor:"#f39"}}>
+        <h2 style={{color:"#f39"}}>App crashed</h2>
+        <p className="muted">{String(err.message)}</p>
+        <div className="row" style={{gap:8}}>
+          <button onClick={() => { 
+            try { localStorage.removeItem("wm_console_cfg"); localStorage.removeItem("wm_dev_console_cfg"); } catch {}
+            location.href = location.origin + "/?v=" + Date.now();
+          }}>Reset Config & Reload</button>
+          <button className="ghost" onClick={() => console.log(err)}>Details (console)</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -236,6 +264,7 @@ export default function App() {
   const envText = ver?.backend?.env ?? ""; const shaText = ver?.backend?.sha ?? ""; const builtAt = ver?.backend?.built_at ?? "";
 
   return (
+    <Safe>
     <div className="wrap">
       <Toaster />
       <div className="header">
@@ -425,5 +454,6 @@ export default function App() {
         })}
       </section>
     </div>
+    </Safe>
   );
 }

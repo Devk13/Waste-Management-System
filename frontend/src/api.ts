@@ -1,7 +1,8 @@
 // frontend/src/api.ts
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 
-export type ApiConfig = { base: string; apiKey?: string | null; adminKey?: string | null };
+export type ConsoleCfg = { base: string; apiKey?: string; adminKey?: string };
+export type ApiConfig = { base: string; apiKey?: string; adminKey?: string };
 const LS_KEY = "wm_dev_console_cfg";
 
 function loadConfig(): ApiConfig {
@@ -9,6 +10,10 @@ function loadConfig(): ApiConfig {
   return { base: (import.meta as any).env?.VITE_API_BASE || window.location.origin, apiKey: "", adminKey: "" };
 }
 function saveConfig(c: ApiConfig) { localStorage.setItem(LS_KEY, JSON.stringify(c)); }
+function readJSON<T>(k: string): T | null {
+  try { const raw = localStorage.getItem(k); return raw ? JSON.parse(raw) as T : null; }
+  catch { return null; }
+}
 
 let cfg = loadConfig();
 let client: AxiosInstance = createClient(cfg);
@@ -30,7 +35,25 @@ function createClient(c: ApiConfig): AxiosInstance {
 }
 
 export function setConfig(next: ApiConfig) { cfg = next; saveConfig(cfg); client = createClient(cfg); }
-export function getConfig(): ApiConfig { return cfg; }
+export function getConfig(): ApiConfig {
+  // 1) legacy store (used by existing panels)
+  const oldCfg = readJSON<any>('wm_console_cfg');
+  if (oldCfg && typeof oldCfg === 'object') {
+    return {
+      base: typeof oldCfg.base === 'string' ? oldCfg.base : String(oldCfg.base ?? ''),
+      apiKey: typeof oldCfg.apiKey === 'string' ? oldCfg.apiKey : '',
+      adminKey: typeof oldCfg.adminKey === 'string' ? oldCfg.adminKey : '',
+    };
+  }
+  // 2) fallback to new store (used by Jobs/MyTasks)
+  const dev = readJSON<any>('wm_dev_console_cfg') || {};
+  const baseUrl = typeof dev.baseUrl === 'string' ? dev.baseUrl : String(dev.baseUrl ?? '');
+  return {
+    base: baseUrl.replace(/\/+$/, ''),                 // strip trailing slashes; safe on empty
+    apiKey: typeof dev.driverKey === 'string' ? dev.driverKey : '',
+    adminKey: typeof dev.adminKey === 'string' ? dev.adminKey : '',
+  };
+}
 
 async function get<T=any>(url: string, config?: AxiosRequestConfig){ return (await client.get<T>(url, config)).data; }
 async function post<T=any>(url: string, body?: any, config?: AxiosRequestConfig){ return (await client.post<T>(url, body??{}, config)).data; }
