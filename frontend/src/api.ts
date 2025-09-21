@@ -80,37 +80,41 @@ export const api = {
   versions: () => get("/meta/versions"),
   latestWtns: (limit = 5) => get(`/__debug/wtns?limit=${limit}`),
   meta: async () => {
-  try {
-    const raw = await get("/meta/config");
+  const fallback = { skip: { colors: { green: { label: "Recycling" } }, sizes: { sizes_m3: [6, 8, 12] } } };
 
-    // Try to coerce various possible shapes into a single shape the UI expects:
-    // { skip: { colors: Record<string,any>, sizes: { sizes_m3?: number[], wheelie_l?: number[], rolloff_yd?: number[] } } }
-    const colors =
-      raw?.skip?.colors ??
-      raw?.colors ??
-      raw?.SKIP_COLOR_SPEC ??
-      {};
+  const fetchSafe = async (path: string) => {
+    try { return await get(path); } catch { return null; }
+  };
 
-    const sizesSrc =
-      raw?.skip?.sizes ??
-      raw?.sizes ??
-      {
-        sizes_m3: raw?.SKIP_SIZES_M3 ?? raw?.SKIP_SIZES ?? undefined,
-        wheelie_l: raw?.WHEELIE_LITRES ?? undefined,
-        rolloff_yd: raw?.ROLLOFF_YARDS ?? undefined,
-      };
+  let raw = await fetchSafe("/meta/config");
+  if (!raw) raw = await fetchSafe("/_meta/config");
+  if (!raw) return fallback;
 
-    // Ensure strings (e.g., ["6","8","12"]) become labels like "6" or "6m3" if needed; UI already shows raw strings.
-    const sizes = Object.fromEntries(
-      Object.entries(sizesSrc).map(([k, v]) => [k, Array.isArray(v) ? v : []])
-    );
+  // normalize into: { skip: { colors: Record<string,any>, sizes: { sizes_m3?: (number|string)[], wheelie_l?: (number|string)[], rolloff_yd?: (number|string)[] } } }
+  const colors =
+    raw?.skip?.colors ??
+    raw?.colors ??
+    raw?.SKIP_COLOR_SPEC ??
+    {};
 
-    return { skip: { colors, sizes } };
-  } catch {
-    // Fallback (your current stub)
-    return { skip: { colors: { green: { label: "Recycling" } }, sizes: { sizes_m3: [6, 8, 12] } } };
-  }
-  },
+  const sizesSrc =
+    raw?.skip?.sizes ??
+    raw?.sizes ??
+    {
+      sizes_m3: raw?.SKIP_SIZES_M3 ?? raw?.SKIP_SIZES ?? undefined,
+      wheelie_l: raw?.WHEELIE_LITRES ?? undefined,
+      rolloff_yd: raw?.ROLLOFF_YARDS ?? undefined,
+    };
+
+  const toStrArr = (v: unknown) =>
+    Array.isArray(v) ? v.map(x => (x == null ? "" : String(x))) : [];
+
+  const sizes = Object.fromEntries(
+    Object.entries(sizesSrc).map(([k, v]) => [k, toStrArr(v)])
+  );
+
+  return { skip: { colors, sizes } };
+},
 
   ensureSkipDev: async (qr: string) => {
     try { return await post("/driver/dev/ensure-skip", { qr_code: qr, qr }); }
@@ -163,13 +167,18 @@ unassignBin: (p: { qr: string; contractor_id?: string }) =>
 export type SkipCreateIn = { qr:string; color:string; size:string; notes?:string };
 export async function adminCreateSkip(p: SkipCreateIn) {
   try {
-    // NOTE: mounted path is /skips + resource /skips + _seed
-    return await post("/skips/skips/_seed", p, {
+    // map `qr` -> `qr_code` for the backend seed schema
+    return await post("/skips/skips/_seed", {
+      qr_code: p.qr,
+      color: p.color,
+      size: p.size,
+      notes: p.notes ?? undefined,
+    }, {
       headers: { "X-API-Key": getConfig().adminKey || "" },
     });
   } catch (e: any) {
-    // dev fallback: /driver/dev/ensure-skip
-    if ([401,403,404,405].includes(e?.response?.status)) {
+    // fallback to dev helper if the admin seed is locked down
+    if ([401, 403, 404, 405].includes(e?.response?.status)) {
       return await post(
         "/driver/dev/ensure-skip",
         { qr_code: p.qr, qr: p.qr },

@@ -5,8 +5,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api, pretty, adminCreateSkip, type SkipCreateIn } from "../api";
 
 type MetaColors = Record<string, any>;
-type MetaSizes = Record<string, string[]>;
-type MetaShape = { skip: { colors: MetaColors; sizes: MetaSizes } };
+type MetaSizes  = Record<string, Array<string | number>>;   // ⬅️ was string[]
+type MetaShape  = { skip: { colors: MetaColors; sizes: MetaSizes } };
 
 export default function SkipCreateForm( 
   { onSeed }: { onSeed?: (qr: string) => void }
@@ -19,7 +19,20 @@ export default function SkipCreateForm(
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<any>(null);
 
-  useEffect(() => { api.meta().then(setMeta).catch(() => setMeta(null)); }, []);
+  useEffect(() => {
+  let alive = true;
+
+  (async () => {
+    try {
+      const m = await api.meta();      // ← normalized meta() we just added in api.ts
+      if (alive) setMeta(m);
+    } catch {
+      if (alive) setMeta(null);
+    }
+  })();
+
+  return () => { alive = false; };
+}, []);
 
   const colorOptions = useMemo(() => {
     const colors = meta?.skip?.colors ?? {};
@@ -30,12 +43,15 @@ export default function SkipCreateForm(
   }, [meta]);
 
   const groupedSizeOptions = useMemo(() => {
-    const sizes = meta?.skip?.sizes ?? {};
-    return Object.entries(sizes).map(([group, items]) => ({
-      group,
-      items: (items as string[]).map((v) => ({ value: v, label: v })),
-    }));
-  }, [meta]);
+  const sizes = meta?.skip?.sizes ?? {};
+  return Object.entries(sizes).map(([group, items]) => {
+    const arr = (items as Array<string | number>).map(v => {
+      const s = String(v);
+      return { value: s, label: s };
+    });
+    return { group, items: arr };
+  });
+}, [meta]);
 
   const submit = async () => {
     if (!qr || !color || !size) { setOut({ error:"Missing required fields" }); return; }
@@ -48,7 +64,10 @@ export default function SkipCreateForm(
       const seeded = (res as any)?.qr_code ?? (res as any)?.qr ?? qr;
       onSeed?.(seeded);
     } catch (e: any) {
-      setOut({ error: e?.message, detail: e?.response?.data });
+  setOut({
+    error: e?.message || "Request failed",
+    detail: e?.response?.data ?? e
+  });
     } finally {
       setBusy(false);
     }
