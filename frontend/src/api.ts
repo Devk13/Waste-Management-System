@@ -80,8 +80,36 @@ export const api = {
   versions: () => get("/meta/versions"),
   latestWtns: (limit = 5) => get(`/__debug/wtns?limit=${limit}`),
   meta: async () => {
-    try { return await get("/meta/config"); }
-    catch { return { skip:{ colors:{ green:{label:"Recycling"} }, sizes:{ sizes_m3:[6,8,12] } } }; }
+  try {
+    const raw = await get("/meta/config");
+
+    // Try to coerce various possible shapes into a single shape the UI expects:
+    // { skip: { colors: Record<string,any>, sizes: { sizes_m3?: number[], wheelie_l?: number[], rolloff_yd?: number[] } } }
+    const colors =
+      raw?.skip?.colors ??
+      raw?.colors ??
+      raw?.SKIP_COLOR_SPEC ??
+      {};
+
+    const sizesSrc =
+      raw?.skip?.sizes ??
+      raw?.sizes ??
+      {
+        sizes_m3: raw?.SKIP_SIZES_M3 ?? raw?.SKIP_SIZES ?? undefined,
+        wheelie_l: raw?.WHEELIE_LITRES ?? undefined,
+        rolloff_yd: raw?.ROLLOFF_YARDS ?? undefined,
+      };
+
+    // Ensure strings (e.g., ["6","8","12"]) become labels like "6" or "6m3" if needed; UI already shows raw strings.
+    const sizes = Object.fromEntries(
+      Object.entries(sizesSrc).map(([k, v]) => [k, Array.isArray(v) ? v : []])
+    );
+
+    return { skip: { colors, sizes } };
+  } catch {
+    // Fallback (your current stub)
+    return { skip: { colors: { green: { label: "Recycling" } }, sizes: { sizes_m3: [6, 8, 12] } } };
+  }
   },
 
   ensureSkipDev: async (qr: string) => {
@@ -134,10 +162,19 @@ unassignBin: (p: { qr: string; contractor_id?: string }) =>
 // optional helper you added is fine to keep:
 export type SkipCreateIn = { qr:string; color:string; size:string; notes?:string };
 export async function adminCreateSkip(p: SkipCreateIn) {
-  try { return await post("/skips/_seed", p, { headers: { "X-API-Key": getConfig().adminKey || "" } }); }
-  catch (e:any) {
+  try {
+    // NOTE: mounted path is /skips + resource /skips + _seed
+    return await post("/skips/skips/_seed", p, {
+      headers: { "X-API-Key": getConfig().adminKey || "" },
+    });
+  } catch (e: any) {
+    // dev fallback: /driver/dev/ensure-skip
     if ([401,403,404,405].includes(e?.response?.status)) {
-      return await post("/driver/dev/ensure-skip", { qr_code:p.qr, qr:p.qr }, { headers: { "X-API-Key": getConfig().adminKey || getConfig().apiKey || "" } });
+      return await post(
+        "/driver/dev/ensure-skip",
+        { qr_code: p.qr, qr: p.qr },
+        { headers: { "X-API-Key": getConfig().adminKey || getConfig().apiKey || "" } }
+      );
     }
     throw parseApiError(e);
   }
