@@ -36,7 +36,7 @@ export default function MyTasksPanel() {
   const looksLikeId = (s: string) => /^[0-9a-fA-F-]{20,}$/.test(s);
 
   const resolveDriverId = useCallback(async (): Promise<string | null> => {
-    const ref = (dev.driverRef || dev.driverId || "").trim();
+    const ref = (dev.driverName || dev.driverId || "").trim();
     if (!ref) return null;
     if (looksLikeId(ref)) return ref;
 
@@ -59,7 +59,7 @@ export default function MyTasksPanel() {
     } catch {
       return null;
     }
-  }, [dev.driverRef, dev.driverId, cfg.adminKey]);
+  }, [dev.driverName, dev.driverId, cfg.adminKey]);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);

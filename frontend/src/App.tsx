@@ -67,9 +67,9 @@ function Safe({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const [cfg, setCfg] = useState(getConfig());
-  const [driverIdCfg, setDriverIdCfg] = useState<string>(() => {
-    try { return loadDevCfg().driverId || "" } catch { return "" }
-  });
+  const [driverNameCfg, setDriverNameCfg] = useState<string>(() => {
+  try { return loadDevCfg().driverName || "" } catch { return "" }
+});
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<PanelResult[]>([]);
   const [ver, setVer] = useState<Versions | null>(null);
@@ -97,19 +97,23 @@ export default function App() {
     setOut((xs)=>[{title, payload, at:new Date().toLocaleTimeString()}, ...xs].slice(0,30));
 
   const save = () => {
-    const trimmed = { ...cfg, base: (cfg.base || "").trim() };
-    setConfig(trimmed); // writes both stores & rebuilds axios client
-    // mirror driverId in dev store explicitly
-    saveDevCfg({
-      baseUrl: (trimmed.base || "").replace(/\/+$/, ""),
-      adminKey: trimmed.adminKey || "",
-      driverKey: trimmed.apiKey || "",
-      driverId: driverIdCfg || ""
-    });
-    setCfg(getConfig());
-    pushOut("Saved config", { ...trimmed, driverId: driverIdCfg });
-    toast.success("Configuration saved");
-  };
+  const trimmed = { ...cfg, base: (cfg.base || "").trim().replace(/\/+$/, "") };
+
+  // writes both stores & rebuilds axios client
+  setConfig(trimmed);
+
+  // mirror driverName in dev store explicitly
+  saveDevCfg({
+    baseUrl: trimmed.base || "",
+    adminKey: trimmed.adminKey || "",
+    driverKey: trimmed.apiKey || "",
+    driverName: driverNameCfg || "",
+  });
+
+  setCfg(getConfig());
+  pushOut("Saved config", { ...trimmed, driverName: driverNameCfg });
+  toast.success("Configuration saved");
+};
 
   const [contractors, setContractors] = useState<any[]>([]);
   const [contractorId, setContractorId] = useState<string>("");
@@ -159,10 +163,57 @@ export default function App() {
   };
 
   // mini creates
-  const seedDriver = async ()=>{ const name = prompt("Driver full name", "Alex"); if (!name) return;
-    const r = await run("Create driver", ()=>api.createDriver({ name })); setDrivers(await api.listDrivers()); setDriverId(r.id); };
-  const seedVehicle = async ()=>{ const reg = prompt("Vehicle reg", "TEST-001"); if (!reg) return;
-    const r = await run("Create vehicle", ()=>api.createVehicle({ reg_no:reg })); setVehicles(await api.listVehicles()); setVehId(r.id); };
+  const seedDriver = async () => {
+    const name = prompt("Driver full name", "Alex");
+    if (!name) return;
+    try {
+      const r = await run("Create driver", () => api.createDriver({ name }));
+      setDrivers(await api.listDrivers());
+      setDriverId(r.id);
+    } catch (e: any) {
+      // Gracefully handle duplicate
+      if (e instanceof ApiError && e.code === 409) {
+        toast.error("Driver already exists", name);
+        const ds = await api.listDrivers();
+        setDrivers(ds);
+        const existing =
+          ds.find((d:any) => (d.full_name ?? d.name ?? "").toLowerCase() === name.toLowerCase()) ||
+          ds.find((d:any) => (d.name ?? "").toLowerCase() === name.toLowerCase());
+        if (existing) setDriverId(existing.id);
+        return;
+      }
+      throw e; // let our Safe boundary catch anything unexpected
+    }
+  };
+
+  const seedVehicle = async () => {
+    const reg = prompt("Vehicle reg", "TEST-001");
+    if (!reg) return;
+
+    try {
+      const r = await run("Create vehicle", () =>
+        api.createVehicle({ reg_no: reg })
+      );
+      // Created OK – refresh and select new one
+      setVehicles(await api.listVehicles());
+      setVehId(r.id);
+    } catch (e: any) {
+      // Gracefully handle duplicate registration
+      if (e instanceof ApiError && e.code === 409) {
+        toast.error("Vehicle already exists", reg);
+        const vs = await api.listVehicles();
+        setVehicles(vs);
+        const existing =
+          vs.find((v: any) =>
+            (v.reg_no ?? v.plate ?? "").toLowerCase() === reg.toLowerCase()
+          ) || null;
+        if (existing) setVehId(existing.id);
+        return;
+      }
+      // Anything else -> let the error bubble to the Safe boundary
+      throw e;
+    }
+  };
 
   // Admin inline edit state
   const selDriver = useMemo(()=>drivers.find(d=>d.id===driverId)??null,[drivers,driverId]);
@@ -281,7 +332,7 @@ export default function App() {
             <label>Base URL<input value={cfg.base} onChange={(e)=>setCfg({...cfg, base:e.target.value})}/></label>
             <label>Driver API Key<input value={cfg.apiKey??""} onChange={(e)=>setCfg({...cfg, apiKey:e.target.value})}/></label>
             <label>Admin Key<input value={cfg.adminKey??""} onChange={(e)=>setCfg({...cfg, adminKey:e.target.value})}/></label>
-            <label className="full">Driver Id <input value={driverIdCfg} onChange={(e)=>setDriverIdCfg(e.target.value)} placeholder="e.g. drv_123"/></label>
+            <label className="full"> Driver Name <input placeholder="e.g. Alex" value={driverNameCfg} onChange={(e) => setDriverNameCfg(e.target.value)} /> </label>
           </div>
           <div className="row"><button onClick={save}>Save</button></div>
         </section>

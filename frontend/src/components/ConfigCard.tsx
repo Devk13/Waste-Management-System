@@ -6,63 +6,63 @@ function normalizeBaseUrl(s: string): string {
   let v = (s || "").trim();
   v = v.replace(/\s+/g, "");
   if (!v) return "";
-  return v.replace(/\/+$/, ""); // strip trailing slashes
+  return v.replace(/\/+$/, "");
 }
 
 export default function ConfigCard() {
-  const [cfg, setCfg] = useState<DevCfg>({ baseUrl: "", adminKey: "", driverKey: "", driverRef: "" });
+  const [cfg, setCfg] = useState<DevCfg>({ baseUrl: "" });
   const [saved, setSaved] = useState(false);
 
   useEffect(() => { setCfg(loadCfg()); }, []);
 
   const onSave = () => {
     const next: DevCfg = {
-      ...cfg,
-      baseUrl: normalizeBaseUrl(cfg.baseUrl || ""),
-      adminKey: cfg.adminKey || "",
+      baseUrl: normalizeBaseUrl(cfg.baseUrl),
       driverKey: cfg.driverKey || "",
-      driverRef: (cfg.driverRef || "").trim(),
+      adminKey: cfg.adminKey || "",
+      driverName: (cfg.driverName || "").trim(),
     };
-    saveCfg(next);               // saveCfg keeps driverId in sync for backward-compat
-    setCfg(loadCfg());           // re-read to reflect normalization
+    saveCfg(next);
+    setCfg(loadCfg());
     setSaved(true);
     setTimeout(() => setSaved(false), 1200);
   };
 
-  const canSave = !!(cfg.baseUrl && cfg.baseUrl.trim());
+  const canSave = !!cfg.baseUrl?.trim();
 
   return (
     <div className="rounded-xl border p-4 space-y-3">
       <h3 className="text-lg font-semibold">Config</h3>
+
       <div className="grid md:grid-cols-3 grid-cols-1 gap-2">
         <input
           className="border rounded p-2"
           placeholder="Base URL https://waste-management-system-cvss.onrender.com"
           value={cfg.baseUrl}
-          onChange={e => setCfg({ ...cfg, baseUrl: e.target.value })}
+          onChange={(e) => setCfg({ ...cfg, baseUrl: e.target.value })}
         />
         <input
           className="border rounded p-2"
           type="password"
           placeholder="Driver API Key"
           value={cfg.driverKey || ""}
-          onChange={e => setCfg({ ...cfg, driverKey: e.target.value })}
+          onChange={(e) => setCfg({ ...cfg, driverKey: e.target.value })}
         />
         <input
           className="border rounded p-2"
           type="password"
           placeholder="Admin Key"
           value={cfg.adminKey || ""}
-          onChange={e => setCfg({ ...cfg, adminKey: e.target.value })}
+          onChange={(e) => setCfg({ ...cfg, adminKey: e.target.value })}
         />
-        {/* New: name-or-id field */}
         <input
           className="border rounded p-2 md:col-span-3"
-          placeholder="Driver (name or id), e.g., Alex"
-          value={cfg.driverRef || ""}
-          onChange={e => setCfg({ ...cfg, driverRef: e.target.value })}
+          placeholder="Driver Name (e.g., Alex)"
+          value={cfg.driverName || ""}
+          onChange={(e) => setCfg({ ...cfg, driverName: e.target.value })}
         />
       </div>
+
       <button
         className="bg-black text-white rounded px-3 py-2 disabled:opacity-50"
         disabled={!canSave}
