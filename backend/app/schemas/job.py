@@ -3,8 +3,7 @@
 from __future__ import annotations
 from typing import Optional, Literal
 from datetime import datetime
-from pydantic import BaseModel, Field
-from pydantic import ConfigDict  # pydantic v2
+from pydantic import BaseModel, Field, ConfigDict
 
 JobType = Literal["DELIVER_EMPTY", "RELOCATE_EMPTY", "COLLECT_FULL", "RETURN_EMPTY"]
 JobStatus = Literal["PENDING", "IN_PROGRESS", "DONE", "FAILED"]

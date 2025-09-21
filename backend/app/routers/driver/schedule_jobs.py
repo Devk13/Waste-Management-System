@@ -1,4 +1,5 @@
 # path: backend/app/routers/driver/schedule_jobs.py
+
 from __future__ import annotations
 from typing import List, Optional
 import logging
@@ -12,15 +13,10 @@ from ...models.job import Job
 
 log = logging.getLogger("uvicorn")
 
-router = APIRouter(
-    prefix="/driver",
-    tags=["driver:schedule"],
-    dependencies=[Depends(driver_gate)],
-)
+router = APIRouter(prefix="/driver", tags=["driver:schedule"], dependencies=[Depends(driver_gate)])
 
 async def _ensure_jobs_table(db: AsyncSession) -> None:
     bind = db.get_bind()
-    assert bind is not None
     async with bind.begin() as conn:
         await conn.run_sync(lambda s: Job.__table__.create(bind=s, checkfirst=True))
 
@@ -33,15 +29,14 @@ async def driver_schedule(
     await _ensure_jobs_table(db)
     did = (driver_id or driver or "").strip()
     if not did:
-        raise HTTPException(
-            status_code=422,
-            detail=[{"type":"missing","loc":["query","driver|driver_id"],"msg":"Field required","input":None}],
-        )
+        raise HTTPException(status_code=422, detail=[{
+            "type":"missing", "loc":["query","driver|driver_id"], "msg":"Field required", "input":None
+        }])
     try:
-        rows = await jobs_for_driver(db, did)  # likely returns ORM rows
-        return [JobOut.model_validate(r) for r in rows]
+        jobs = await jobs_for_driver(db, did)
+        return [JobOut.model_validate(j) for j in jobs]
     except Exception as e:
-        log.exception("driver_schedule failed for driver_id=%s: %s", did, e)
+        log.exception("driver_schedule failed (driver_id=%s): %s", did, e)
         raise HTTPException(status_code=500, detail=f"driver_schedule failed: {type(e).__name__}: {e}")
 
 @router.patch("/schedule/{task_id}/done", response_model=JobOut)
