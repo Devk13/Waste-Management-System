@@ -22,7 +22,6 @@ def _normalize_db_url(raw: str | None) -> str:
     if not s:
         return ""
 
-    # sqlite -> aiosqlite
     if s.startswith("sqlite://") and "+aiosqlite" not in s:
         s = s.replace("sqlite://", "sqlite+aiosqlite://", 1)
 
@@ -32,7 +31,7 @@ def _normalize_db_url(raw: str | None) -> str:
         scheme = "postgresql+asyncpg"
 
     q = dict(parse_qsl(u.query, keep_blank_values=True))
-    if "sslmode" in q:  # Render usually sets sslmode=require
+    if "sslmode" in q:  # Render often sets sslmode=require
         q.pop("sslmode", None)
         q.setdefault("ssl", "true")
     elif scheme.startswith("postgresql"):
@@ -49,9 +48,7 @@ def _split_sc(v: str | None) -> list[str]:
 
 
 def _parse_color_map(spec: str | None) -> dict[str, str]:
-    """
-    Parse 'yellow=general;red=hazardous' (semicolon-delimited).
-    """
+    """Parse 'yellow=general;red=hazardous' (semicolon-delimited)."""
     if not spec:
         return {}
     out: dict[str, str] = {}
@@ -61,6 +58,15 @@ def _parse_color_map(spec: str | None) -> dict[str, str]:
         if k and v:
             out[k] = v
     return out
+
+
+def _bool(v: str | bool | None, default: bool = False) -> bool:
+    """Env-friendly bool; ensures predictable behavior."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ── Skip / container canonical constants ─────────────────────────────────────
@@ -111,9 +117,15 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./dev.db"
 
     # CORS / frontend base
+    # Prefer explicit origins in prod (comma/semicolon separated).
     CORS_ORIGINS: str = "*"
+    # Optional alias; if set, appended to CORS_ORIGINS for convenience.
+    FRONTEND_ORIGINS: str = ""
     CORS_ALLOW_CREDENTIALS: bool = True
-    DRIVER_QR_BASE_URL: str = "http://localhost:5173"
+    DRIVER_QR_BASE_URL: str = "http://localhost:5173"  # ⚠ dev default; use https in prod
+
+    # Feature flags
+    ENABLE_DRIVER_JOBS_SCHEDULE: bool = False  # gate for /driver/schedule if needed
 
     # Skip options (env-overridable convenience)
     SKIP_SIZES: str = "2yd;4yd;6yd;8yd;12yd"
@@ -125,13 +137,51 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-# instantiate once
+# Instantiate once
 settings = Settings()
 
-# normalize DATABASE_URL after env merge
-settings.DATABASE_URL = _normalize_db_url(os.getenv("DATABASE_URL", settings.DATABASE_URL))
+# Normalize DATABASE_URL using merged env (not os.getenv).
+settings.DATABASE_URL = _normalize_db_url(settings.DATABASE_URL)
 
-# parsed convenience exports
-CORS_ORIGINS_LIST: list[str] = _split_sc(settings.CORS_ORIGINS)
+# Build CORS origins list from both envs
+_origins = []
+_origins.extend(_split_sc(settings.CORS_ORIGINS))
+if settings.FRONTEND_ORIGINS.strip():
+    _origins.extend([o for o in _split_sc(settings.FRONTEND_ORIGINS) if o not in {"*", ""}])
+
+# Deduplicate while preserving order
+seen = set()
+CORS_ORIGINS_LIST: list[str] = []
+for o in _origins:
+    if o not in seen:
+        seen.add(o)
+        CORS_ORIGINS_LIST.append(o)
+
+# If wildcard is present or list ends up ["*"], credentials must be off.
+WILDCARD = (CORS_ORIGINS_LIST == ["*"]) or ("*" in CORS_ORIGINS_LIST)
+CORS_ALLOW_CREDENTIALS_EFFECTIVE: bool = False if WILDCARD else _bool(settings.CORS_ALLOW_CREDENTIALS, default=False)
+
+# Public exports for skip meta
 SKIP_SIZES_LIST: list[str] = _split_sc(settings.SKIP_SIZES)
 SKIP_COLOR_MAP: dict[str, str] = _parse_color_map(settings.SKIP_COLOR_MEANINGS)
+
+# Convenience kwargs for CORSMiddleware to avoid misconfiguration.
+# Why: browsers reject '*' with credentials; centralize the rule.
+CORS_KWARGS = {
+    "allow_origins": ["*"] if WILDCARD else CORS_ORIGINS_LIST,
+    "allow_credentials": CORS_ALLOW_CREDENTIALS_EFFECTIVE,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+
+# Optional: quick summary for debug endpoints
+SETTINGS_SUMMARY = {
+    "env": settings.ENV,
+    "debug": settings.DEBUG,
+    "expose_admin_routes": settings.EXPOSE_ADMIN_ROUTES,
+    "db_url_driver": settings.DATABASE_URL.split("://", 1)[0],
+    "cors_origins": CORS_ORIGINS_LIST,
+    "cors_allow_credentials": CORS_ALLOW_CREDENTIALS_EFFECTIVE,
+    "wildcard": WILDCARD,
+    "enable_driver_jobs_schedule": settings.ENABLE_DRIVER_JOBS_SCHEDULE,
+}
