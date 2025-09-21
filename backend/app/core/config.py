@@ -18,13 +18,17 @@ def _normalize_db_url(raw: str | None) -> str:
     """
     if not raw:
         return ""
-    s = raw.strip()
+    # Accept SQLAlchemy URL objects too
+    s = raw if isinstance(raw, str) else str(raw)
+    s = s.strip()
     if not s:
         return ""
 
+    # sqlite -> aiosqlite
     if s.startswith("sqlite://") and "+aiosqlite" not in s:
         s = s.replace("sqlite://", "sqlite+aiosqlite://", 1)
 
+    from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
     u = urlparse(s)
     scheme = u.scheme
     if scheme.startswith("postgres"):
@@ -185,3 +189,8 @@ SETTINGS_SUMMARY = {
     "wildcard": WILDCARD,
     "enable_driver_jobs_schedule": settings.ENABLE_DRIVER_JOBS_SCHEDULE,
 }
+
+ADMIN_API_KEY: str = settings.ADMIN_API_KEY
+DRIVER_API_KEY: str = settings.DRIVER_API_KEY
+DATABASE_URL: str = settings.DATABASE_URL
+EXPOSE_ADMIN_ROUTES: bool = settings.EXPOSE_ADMIN_ROUTES
