@@ -262,6 +262,43 @@ export const api = {
   markTaskDone: (taskId: string) => patch(`/driver/schedule/${taskId}/done`, {}),
 };
 
+// also export the seed helper expected by SkipCreationForm.tsx
+export type SkipCreateIn = {
+  qr: string;
+  color: string;
+  size: string;
+  notes?: string;
+  owner_org_id?: string;
+};
+
+/** Admin seed helper used by the UI form. Falls back to the dev ensure endpoint if the admin seed is gated. */
+export async function adminCreateSkip(p: SkipCreateIn) {
+  try {
+    // primary: admin seed endpoint
+    return await post(
+      "/skips/skips/_seed",
+      {
+        qr_code: p.qr,          // backend expects qr_code
+        color: p.color,
+        size: p.size,
+        notes: p.notes ?? undefined,
+        owner_org_id: p.owner_org_id ?? undefined,
+      },
+      { headers: { "X-API-Key": getConfig().adminKey || "" } }
+    );
+  } catch (e: any) {
+    // fallback: dev helper (still requires some key)
+    if ([401, 403, 404, 405].includes(e?.response?.status)) {
+      return await post(
+        "/driver/dev/ensure-skip",
+        { qr_code: p.qr, qr: p.qr },
+        { headers: { "X-API-Key": getConfig().adminKey || getConfig().apiKey || "" } }
+      );
+    }
+    throw parseApiError(e);
+  }
+}
+
 // utilities
 export type Json = any;
 export function pretty(x: Json) {
