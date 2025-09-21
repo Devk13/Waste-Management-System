@@ -87,6 +87,19 @@ app.include_router(api_router)
 app.include_router(admin_jobs_router.router)
 app.include_router(debug_settings_router.router)
 
+# --- Admin: Drivers & Vehicles ---------------------------------------------
+try:
+    from app.api.admin_drivers import router as admin_drivers_router
+    app.include_router(admin_drivers_router)
+except Exception as e:
+    print(f"[main] WARN: couldn't mount admin_drivers: {type(e).__name__}: {e}", flush=True)
+
+try:
+    from app.api.admin_vehicles import router as admin_vehicles_router
+    app.include_router(admin_vehicles_router)
+except Exception as e:
+    print(f"[main] WARN: couldn't mount admin_vehicles: {type(e).__name__}: {e}", flush=True)
+
 # ---- Health / meta ----
 @app.get("/__health")
 async def health():
