@@ -355,14 +355,13 @@ export default function App() {
             <button disabled={busy} onClick={() => run("__admin/bootstrap", api.bootstrap)}>Bootstrap DB </button>
             <button disabled={busy} onClick={()=>run("skips/__smoke", api.skipsSmoke)}>Skips Smoke</button>
             <button disabled={busy} onClick={fetchVersions}>Versions</button>
-            // HTML
+            
               <button disabled={busy} onClick={async ()=>{
                 const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
                 const u = r?.items?.[0]?.pdf_url; if (!u) { toast.error("No recent WTN"); return; }
                 openWithParams(cfg.base, u, { format: "html", key: cfg.adminKey || "" });
               }}>Open Latest WTN (HTML)</button>
 
-              // PDF
               <button disabled={busy} onClick={async ()=>{
                 const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
                 const u = r?.items?.[0]?.pdf_url; if (!u) { toast.error("No recent WTN"); return; }

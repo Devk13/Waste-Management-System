@@ -264,14 +264,40 @@ async def create_skip(
     session.add(skip)
     await session.flush()  # get skip.id
 
-    # Generate + store assets
-    await _ensure_label_assets(session, skip, org_name)
+    # ---- generate label artifacts
+    deeplink = _qr_deeplink(qr_code)
+    png_bytes = make_qr_png(deeplink)
+    meta = LabelMeta(qr_text=deeplink, qr_code=qr_code, org_name=org_name)
+    pdf_bytes = make_three_up_pdf(meta, png_bytes)
+
+    # Helper so we work with either `data` or `bytes` attribute names
+    def _asset_kwargs(content_type: str, blob: bytes, *, idx: int | None = None, kind: str):
+        base = {
+            "id": str(uuid.uuid4()),                 # <-- ensure non-null id
+            "skip_id": str(skip.id),                 # <-- always store as string
+            "kind": kind,
+            "idx": idx,
+            "content_type": content_type,
+        }
+        if hasattr(SkipAsset, "data"):
+            base["data"] = blob
+        else:
+            base["bytes"] = blob
+        return base
+
+    # 3 PNG labels
+    for i in range(1, 4):
+        session.add(SkipAsset(**_asset_kwargs("image/png", png_bytes, idx=i, kind=SkipAssetKind.label_png)))
+
+    # 1 PDF (three-up)
+    session.add(SkipAsset(**_asset_kwargs("application/pdf", pdf_bytes, idx=None, kind=SkipAssetKind.labels_pdf)))
+
     await session.commit()
 
     return SkipOut(
         id=skip.id,
         qr_code=qr_code,
-        owner_org_id=skip.owner_org_id,  # str → parsed by Pydantic
+        owner_org_id=skip.owner_org_id,
         labels_pdf_url=f"/skips/{skip.id}/labels.pdf",
         label_png_urls=[f"/skips/{skip.id}/labels/{i}.png" for i in range(1, 4)],
     )
@@ -282,7 +308,7 @@ async def create_skip(
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get("/{skip_id}/labels.pdf")
 async def get_skip_labels_pdf(
-    skip_id: uuid.UUID,
+    skip_id: str,
     session: AsyncSession = Depends(get_db),
     _: None = Depends(_admin_key_ok_q),
 ):
@@ -300,13 +326,41 @@ async def get_skip_labels_pdf(
     return StreamingResponse(iter([asset.data]), media_type=asset.content_type)
 
 
+# ---------- label fetchers ----------
+
+@router.get("/{skip_id}/labels.pdf")
+async def get_skip_labels_pdf(
+    skip_id: str,                              # <- accept string
+    session: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+):
+    if getattr(user, "role", None) != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin only")
+
+    asset = (
+        await session.execute(
+            select(SkipAsset).where(
+                SkipAsset.skip_id == str(skip_id),
+                SkipAsset.kind == SkipAssetKind.labels_pdf,
+            )
+        )
+    ).scalars().first()
+    if not asset:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Labels PDF not found")
+
+    return StreamingResponse(iter([asset.data if hasattr(asset, "data") else asset.bytes]),
+                             media_type=asset.content_type)
+
 @router.get("/{skip_id}/labels/{idx}.png")
 async def get_skip_label_png(
-    skip_id: uuid.UUID,
+    skip_id: str,                              # <- accept string
     idx: int,
     session: AsyncSession = Depends(get_db),
-    _: None = Depends(_admin_key_ok_q),
+    user: Any = Depends(get_current_user),
 ):
+    if getattr(user, "role", None) != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin only")
+
     asset = (
         await session.execute(
             select(SkipAsset).where(
@@ -315,8 +369,9 @@ async def get_skip_label_png(
                 SkipAsset.idx == idx,
             )
         )
-    ).scalar_one_or_none()
+    ).scalars().first()
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Label PNG not found")
 
-    return StreamingResponse(iter([asset.data]), media_type=asset.content_type)
+    return StreamingResponse(iter([asset.data if hasattr(asset, "data") else asset.bytes]),
+                             media_type=asset.content_type)
