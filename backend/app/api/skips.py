@@ -31,7 +31,7 @@ try:
 except Exception:  # pragma: no cover
     Organization = None  # type: ignore
 
-router = APIRouter(prefix="/skips", tags=["skips"])
+router = APIRouter(tags=["skips"])
 
 # -----------------------------------------------------------------------------
 # Helpers

@@ -279,6 +279,6 @@ def __debug_settings():
 # Try to mount /skips; keep booting if it fails
 try:
     from app.api.skips import router as skips_router
-    app.include_router(skips_router)
+    app.include_router(skips_router, prefix="/skips")
 except Exception as e:
     print(f"[main] WARN: couldn't mount app.api.skips: {type(e).__name__}: {e}", flush=True)
