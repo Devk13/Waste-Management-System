@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, insert
+from sqlalchemy import select, insert, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -76,37 +76,64 @@ async def _insert_asset_row(
     content_type: str,
     blob: bytes,
 ) -> None:
-    """Insert into skip_assets using Core and set id explicitly if the table has it."""
     tbl = SkipAsset.__table__  # type: ignore[attr-defined]
-    cols = tbl.c
+    cols = tbl.c.keys()
 
-    values: dict[str, object] = {}
-
-    # explicit primary key if present and non-nullable
-    if "id" in cols.keys():
-        values["id"] = str(uuid.uuid4())
-
-    # required / common columns
-    values["skip_id"] = str(skip_id)
-    values["kind"] = kind
-    if "idx" in cols.keys():
-        values["idx"] = idx
-
-    # choose content-type column
-    if "content_type" in cols.keys():
-        values["content_type"] = content_type
-    elif "mime" in cols.keys():
-        values["mime"] = content_type
-
-    # choose binary column
-    if "data" in cols.keys():
-        values["data"] = blob
-    elif "bytes" in cols.keys():
-        values["bytes"] = blob
-    else:
+    # figure out column names that vary across schemas
+    blob_col = "data" if "data" in cols else ("bytes" if "bytes" in cols else None)
+    if blob_col is None:
         raise RuntimeError("skip_assets table has neither 'data' nor 'bytes' column")
 
-    await session.execute(insert(tbl).values(**values))
+    ct_col = "content_type" if "content_type" in cols else ("mime" if "mime" in cols else None)
+
+    values: dict[str, object] = {
+        "skip_id": str(skip_id),
+        "kind": kind,
+        "idx": idx,
+        "ct": content_type,
+        "blob": blob,
+    }
+
+    if "id" in cols:
+        # normal path – SQLAlchemy knows about id
+        values2 = {}
+        values2["id"] = str(uuid.uuid4())
+        values2["skip_id"] = values["skip_id"]
+        values2["kind"] = values["kind"]
+        if "idx" in cols: values2["idx"] = values["idx"]
+        if ct_col: values2[ct_col] = values["ct"]
+        values2[blob_col] = values["blob"]
+        await session.execute(insert(tbl).values(**values2))
+        return
+
+    # Fallback: the model doesn’t expose 'id' but the DB requires it.
+    # Use a raw text INSERT with an explicit id column.
+    cols_sql = ["id", "skip_id", "kind"]
+    binds = [":id", ":skip_id", ":kind"]
+
+    if "idx" in cols:
+        cols_sql.append("idx"); binds.append(":idx")
+
+    if ct_col:
+        cols_sql.append(ct_col); binds.append(":ct")
+
+    cols_sql.append(blob_col); binds.append(":blob")
+
+    sql = text(
+        f"INSERT INTO {tbl.name} ({', '.join(cols_sql)}) "
+        f"VALUES ({', '.join(binds)})"
+    )
+
+    params = {
+        "id": str(uuid.uuid4()),
+        "skip_id": values["skip_id"],
+        "kind": values["kind"],
+        "idx": values["idx"],
+        "ct": values["ct"],
+        "blob": values["blob"],
+    }
+
+    await session.execute(sql, params)
 
 # Auth helpers
 def _admin_key_expected() -> Optional[str]:
