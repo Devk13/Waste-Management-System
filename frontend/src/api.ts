@@ -56,15 +56,20 @@ export function setConfig(next: ApiConfig) {
 
 // ---- axios client (safe base handling) -------------------------------------
 function createClient(c: ApiConfig): AxiosInstance {
-  const safeBase = String(c.base || "").replace(/\/+$/, ""); // never throws
+  const safeBase = String(c.base || "").replace(/\/+$/, "");
   const inst = axios.create({ baseURL: safeBase, timeout: 20000 });
 
   inst.interceptors.request.use((req) => {
     const url = (req.url || "").toLowerCase();
     const h: Record<string, string> = (req.headers as any) || {};
+
     const needsDriverKey = url.startsWith("/driver") || url.includes("/ensure-skip");
     const needsAdminKey =
-      url.startsWith("/admin") || url.startsWith("/skips/_seed") || url.startsWith("/__debug") || url.startsWith("/_debug");
+      url.startsWith("/admin") ||
+      url.startsWith("/skips/_seed") ||         // ✅ include seed route
+      url.startsWith("/__debug") ||
+      url.startsWith("/_debug");
+
     if (needsDriverKey && c.apiKey) h["X-API-Key"] = c.apiKey!;
     if (needsAdminKey && c.adminKey) h["X-API-Key"] = c.adminKey!;
     req.headers = h as any;
@@ -298,9 +303,9 @@ export async function adminCreateSkip(p: SkipCreateIn) {
   try {
     // primary: admin seed endpoint
     return await post(
-      "/skips/skips/_seed",
+      "/skips/_seed",     // ✅ was "/skips/skips/_seed"
       {
-        qr_code: p.qr,          // backend expects qr_code
+        qr_code: p.qr,
         color: p.color,
         size_m3: Number(p.size),
         notes: p.notes ?? undefined,
@@ -309,7 +314,7 @@ export async function adminCreateSkip(p: SkipCreateIn) {
       { headers: { "X-API-Key": getConfig().adminKey || "" } }
     );
   } catch (e: any) {
-    // fallback: dev helper (still requires some key)
+    // fallback: dev ensure (still needs a key)
     if ([401, 403, 404, 405].includes(e?.response?.status)) {
       return await post(
         "/driver/dev/ensure-skip",
