@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, insert
+from sqlalchemy import select, insert, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -66,46 +66,6 @@ def _new_asset(*, skip_id: str, kind: int | str, idx: int | None,
         fields[ct_attr] = content_type
 
     return SkipAsset(**fields)  # type: ignore[arg-type]
-
-async def _insert_asset_row(
-    session: AsyncSession,
-    *,
-    skip_id: str,
-    kind: int | str,
-    idx: int | None,
-    content_type: str,
-    blob: bytes,
-) -> None:
-    """
-    Insert into skip_assets and set `id` explicitly.
-    Handles schema variants: content_type/mime and data/bytes.
-    """
-    tbl = SkipAsset.__table__  # type: ignore[attr-defined]
-    cols = tbl.c
-
-    values: dict[str, object] = {}
-
-    if "id" in cols.keys():
-        values["id"] = str(uuid.uuid4())
-
-    values["skip_id"] = str(skip_id)
-    values["kind"] = _kind_value(kind)
-    if "idx" in cols.keys():
-        values["idx"] = idx
-
-    if "content_type" in cols.keys():
-        values["content_type"] = content_type
-    elif "mime" in cols.keys():
-        values["mime"] = content_type
-
-    if "data" in cols.keys():
-        values["data"] = blob
-    elif "bytes" in cols.keys():
-        values["bytes"] = blob
-    else:
-        raise RuntimeError("skip_assets table has neither 'data' nor 'bytes' column")
-
-    await session.execute(insert(tbl).values(**values))
 
 # Auth helpers
 def _admin_key_expected() -> Optional[str]:
@@ -213,31 +173,24 @@ async def _insert_asset_row(
     content_type: str,
     blob: bytes,
 ) -> None:
-    """
-    Insert into skip_assets using Core and set `id` explicitly if the table has it.
-    Handles schema variants: content_type/mime and data/bytes.
-    """
+    """Insert into skip_assets (id set explicitly). Supports data/bytes and content_type/mime."""
     tbl = SkipAsset.__table__  # type: ignore[attr-defined]
     cols = tbl.c
 
     values: dict[str, object] = {}
-
-    # explicit primary key if present (avoids NOT NULL on id)
     if "id" in cols.keys():
         values["id"] = str(uuid.uuid4())
 
     values["skip_id"] = str(skip_id)
-    values["kind"] = kind
+    values["kind"] = _kind_value(kind)        # normalize to the stored representation
     if "idx" in cols.keys():
         values["idx"] = idx
 
-    # content-type column name may vary
     if "content_type" in cols.keys():
         values["content_type"] = content_type
     elif "mime" in cols.keys():
         values["mime"] = content_type
 
-    # binary payload column name may vary
     if "data" in cols.keys():
         values["data"] = blob
     elif "bytes" in cols.keys():
@@ -399,7 +352,7 @@ async def create_skip(
         await _insert_asset_row(
             session,
             skip_id=str(skip.id),
-            kind=_kind_value(SkipAssetKind.labels_pdf),
+            kind=_kind_value(SkipAssetKind.label_png),
             idx=i,
             content_type="image/png",
             blob=png_bytes,
@@ -433,14 +386,19 @@ async def create_skip(
 async def get_skip_labels_pdf(
     skip_id: str,
     session: AsyncSession = Depends(get_db),
-    _: None = Depends(_admin_key_ok_q),  # header OR ?key=
+    _: None = Depends(_admin_key_ok_q),
 ):
+    filters = [SkipAsset.skip_id == str(skip_id)]
+    k_pdf = _kind_value(SkipAssetKind.labels_pdf)
+    kind_or_ct = [SkipAsset.kind == k_pdf]
+    if hasattr(SkipAsset, "content_type"):
+        kind_or_ct.append(SkipAsset.content_type == "application/pdf")
+    if hasattr(SkipAsset, "mime"):
+        kind_or_ct.append(SkipAsset.mime == "application/pdf")
+
     asset = (
         await session.execute(
-            select(SkipAsset).where(
-                SkipAsset.skip_id == str(skip_id),
-                SkipAsset.kind == _kind_value(SkipAssetKind.labels_pdf),
-            )
+            select(SkipAsset).where(*filters, or_(*kind_or_ct))
         )
     ).scalar_one_or_none()
     if not asset:
@@ -449,20 +407,25 @@ async def get_skip_labels_pdf(
     blob, ct = _asset_blob_and_ct(asset)
     return StreamingResponse(iter([blob]), media_type=ct)
 
+
 @router.get("/{skip_id}/labels/{idx}.png")
 async def get_skip_label_png(
     skip_id: str,
     idx: int,
     session: AsyncSession = Depends(get_db),
-    _: None = Depends(_admin_key_ok_q),  # header OR ?key=
+    _: None = Depends(_admin_key_ok_q),
 ):
+    filters = [SkipAsset.skip_id == str(skip_id), SkipAsset.idx == idx]
+    k_png = _kind_value(SkipAssetKind.label_png)
+    kind_or_ct = [SkipAsset.kind == k_png]
+    if hasattr(SkipAsset, "content_type"):
+        kind_or_ct.append(SkipAsset.content_type == "image/png")
+    if hasattr(SkipAsset, "mime"):
+        kind_or_ct.append(SkipAsset.mime == "image/png")
+
     asset = (
         await session.execute(
-            select(SkipAsset).where(
-                SkipAsset.skip_id == str(skip_id),
-                SkipAsset.kind == _kind_value(SkipAssetKind.label_png),
-                SkipAsset.idx == idx,
-            )
+            select(SkipAsset).where(*filters, or_(*kind_or_ct))
         )
     ).scalar_one_or_none()
     if not asset:
