@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -67,6 +67,46 @@ def _new_asset(*, skip_id: str, kind: int | str, idx: int | None,
 
     return SkipAsset(**fields)  # type: ignore[arg-type]
 
+async def _insert_asset_row(
+    session: AsyncSession,
+    *,
+    skip_id: str,
+    kind: int | str,
+    idx: int | None,
+    content_type: str,
+    blob: bytes,
+) -> None:
+    """Insert into skip_assets using Core and set id explicitly if the table has it."""
+    tbl = SkipAsset.__table__  # type: ignore[attr-defined]
+    cols = tbl.c
+
+    values: dict[str, object] = {}
+
+    # explicit primary key if present and non-nullable
+    if "id" in cols.keys():
+        values["id"] = str(uuid.uuid4())
+
+    # required / common columns
+    values["skip_id"] = str(skip_id)
+    values["kind"] = kind
+    if "idx" in cols.keys():
+        values["idx"] = idx
+
+    # choose content-type column
+    if "content_type" in cols.keys():
+        values["content_type"] = content_type
+    elif "mime" in cols.keys():
+        values["mime"] = content_type
+
+    # choose binary column
+    if "data" in cols.keys():
+        values["data"] = blob
+    elif "bytes" in cols.keys():
+        values["bytes"] = blob
+    else:
+        raise RuntimeError("skip_assets table has neither 'data' nor 'bytes' column")
+
+    await session.execute(insert(tbl).values(**values))
 
 # Auth helpers
 def _admin_key_expected() -> Optional[str]:
@@ -154,6 +194,48 @@ async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str)
     )
     await session.flush()
 
+async def _insert_asset_row(
+    session: AsyncSession,
+    *,
+    skip_id: str,
+    kind: int | str,
+    idx: int | None,
+    content_type: str,
+    blob: bytes,
+) -> None:
+    """
+    Insert into skip_assets using Core and set `id` explicitly if the table has it.
+    Handles schema variants: content_type/mime and data/bytes.
+    """
+    tbl = SkipAsset.__table__  # type: ignore[attr-defined]
+    cols = tbl.c
+
+    values: dict[str, object] = {}
+
+    # explicit primary key if present (avoids NOT NULL on id)
+    if "id" in cols.keys():
+        values["id"] = str(uuid.uuid4())
+
+    values["skip_id"] = str(skip_id)
+    values["kind"] = kind
+    if "idx" in cols.keys():
+        values["idx"] = idx
+
+    # content-type column name may vary
+    if "content_type" in cols.keys():
+        values["content_type"] = content_type
+    elif "mime" in cols.keys():
+        values["mime"] = content_type
+
+    # binary payload column name may vary
+    if "data" in cols.keys():
+        values["data"] = blob
+    elif "bytes" in cols.keys():
+        values["bytes"] = blob
+    else:
+        raise RuntimeError("skip_assets table has neither 'data' nor 'bytes' column")
+
+    await session.execute(insert(tbl).values(**values))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DEV seed endpoint (guarded) — now creates label assets too
@@ -302,39 +384,26 @@ async def create_skip(
     meta = LabelMeta(qr_text=deeplink, qr_code=qr_code, org_name=org_name)
     pdf_bytes = make_three_up_pdf(meta, png_bytes)
 
-    # Helper so we work with either `data` or `bytes` attribute names
-    def _asset_kwargs(content_type: str, blob: bytes, *, idx: int | None = None, kind: str):
-        base = {
-            "id": str(uuid.uuid4()),                 # <-- ensure non-null id
-            "skip_id": str(skip.id),                 # <-- always store as string
-            "kind": kind,
-            "idx": idx,
-            "content_type": content_type,
-        }
-        if hasattr(SkipAsset, "data"):
-            base["data"] = blob
-        else:
-            base["bytes"] = blob
-        return base
-
-    # 3 PNG labels
+    # Insert three PNG labels
     for i in range(1, 4):
-        session.add(_new_asset(
+        await _insert_asset_row(
+            session,
             skip_id=str(skip.id),
             kind=SkipAssetKind.label_png,
             idx=i,
             content_type="image/png",
             blob=png_bytes,
-        ))
+        )
 
-    # 1 PDF (three-up)
-    session.add(_new_asset(
+    # Insert the 3-up PDF
+    await _insert_asset_row(
+        session,
         skip_id=str(skip.id),
         kind=SkipAssetKind.labels_pdf,
         idx=None,
         content_type="application/pdf",
         blob=pdf_bytes,
-    ))
+    )
 
     await session.commit()
 
