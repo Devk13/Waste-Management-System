@@ -1,17 +1,15 @@
 from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any, Optional
-import os                                               
-from fastapi import APIRouter, Depends, Header, HTTPException, status       #delete
-from pydantic import BaseModel                                              #delete
-from sqlalchemy.ext.asyncio import AsyncSession                             #delete
-from app.core.config import settings                                        #delete
-from app.models import models as m                                          #delete
+import os                                              
+from fastapi import APIRouter, Depends, Header, HTTPException, status       
+from pydantic import BaseModel                                              
+from sqlalchemy.ext.asyncio import AsyncSession                             
+from app.core.config import settings                                       
 from app.models.models import Skip
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
-from fastapi import Header
-from app.models import Skip, SkipStatus
+from app.models import SkipStatus
 from app.models import SkipPlacement as DBPlacement
 from app.api.deps import get_db
 
@@ -45,47 +43,88 @@ def _admin_key_ok(
 
 
 class SeedIn(BaseModel):
-    owner_org_id: str
-    qr_code: str
-    size: str | None = None
+    # allow either id or plain name for the owner org
+    owner_org_id: str | None = None
+    owner_org_name: str | None = None
+
+    # accept either qr_code or qr
+    qr_code: str | None = None
+    qr: str | None = None
+
+    # free-form attributes
+    size: str | int | None = None
     color: str | None = None
     notes: str | None = None
+
+def _to_int(v):
+    if v is None:
+        return None
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return None
 
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
     body: SeedIn,
     session: AsyncSession = Depends(get_db),
-    _: None = Depends(_admin_key_ok),  # authentication guard
+    _: None = Depends(_admin_key_ok),  # authentication guard (X-API-Key)
 ):
-    try:
-        # accept either {"qr_code": "..."} or {"qr": "..."}
-        qr = body.qr_code if getattr(body, "qr_code", None) else getattr(body, "qr", None)
-        if not qr:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="qr required")
+    # 1) normalize qr
+    qr = (body.qr_code or body.qr or "").strip()
+    if not qr:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"fields": {"qr_code": "Field required"}})
 
-        # Idempotent by qr_code
-        existing = (
-            await session.execute(select(Skip).where(Skip.qr_code == qr))
-        ).scalar_one_or_none()
-        if existing:
-            return {"id": str(existing.id), "qr_code": existing.qr_code}
+    # 2) idempotent by qr_code
+    existing = (
+        await session.execute(select(Skip).where(Skip.qr_code == qr))
+    ).scalar_one_or_none()
+    if existing:
+        return {"id": str(existing.id), "qr_code": existing.qr_code}
 
-        s = Skip(
-            owner_org_id=body.owner_org_id,
-            qr_code=qr,
-            size=body.size,
-            color=body.color,
-            notes=body.notes,
+    # 3) instantiate without unsupported kwargs, then set attributes that exist
+    sk = Skip()
+    if hasattr(Skip, "qr_code"):
+        sk.qr_code = qr
+
+    # owner org: by id or by name (if Organization available)
+    owner_id = (body.owner_org_id or "").strip() or None
+    if not owner_id and body.owner_org_name and Organization is not None:
+        row = await session.execute(
+            select(Organization).where(getattr(Organization, "name") == body.owner_org_name)
         )
-        session.add(s)
+        org = row.scalar_one_or_none()
+        if not org:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner org not found")
+        owner_id = getattr(org, "id")
+
+    if owner_id and hasattr(Skip, "owner_org_id"):
+        sk.owner_org_id = owner_id
+
+    if body.color and hasattr(Skip, "color"):
+        sk.color = body.color
+    if body.notes and hasattr(Skip, "notes"):
+        sk.notes = body.notes
+
+    # 4) map human "size" to whatever capacity column your model has
+    size_val = _to_int(body.size)
+    if size_val is not None:
+        for col in ("size_m3", "capacity_m3", "size", "wheelie_l", "capacity_l", "rolloff_yd"):
+            if hasattr(Skip, col):
+                setattr(sk, col, size_val)
+                break  # stop at the first match
+
+    # 5) persist
+    session.add(sk)
+    try:
         await session.flush()
         await session.commit()
-        return {"id": str(s.id), "qr_code": s.qr_code}
     except Exception as e:
-        # helpful during smoke tests; remove later
-        import traceback
-        traceback.print_exc()
+        await session.rollback()
+        # keep the concise message you already used for smoke test UX
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="seed_failed")
+
+    return {"id": str(getattr(sk, "id", "")), "qr_code": getattr(sk, "qr_code", qr)}
 
 
 def _qr_deeplink(code: str) -> str:
