@@ -33,10 +33,42 @@ except Exception:  # pragma: no cover
 
 router = APIRouter(prefix="/skips", tags=["skips"])
 
+# --- helpers for SkipAsset variations ----------------------------------------
+def _new_asset(*, skip_id: str, kind: int | str, idx: int | None,
+               content_type: str, blob: bytes) -> SkipAsset:
+    """
+    Create a SkipAsset instance that works with different model shapes:
+    - id column present and NOT NULL -> set it explicitly
+    - binary column may be 'data' or 'bytes'
+    - content-type column may be 'content_type' or 'mime'
+    """
+    fields: dict[str, object] = {}
 
-# ──────────────────────────────────────────────────────────────────────────────
+    # required columns
+    fields["skip_id"] = str(skip_id)
+    fields["kind"] = kind
+    if hasattr(SkipAsset, "idx"):
+        fields["idx"] = idx
+
+    # explicit id if there's a NOT NULL id column with no default
+    if hasattr(SkipAsset, "id"):
+        fields["id"] = str(uuid.uuid4())
+
+    # choose the right binary column name
+    bin_attr = "data" if hasattr(SkipAsset, "data") else ("bytes" if hasattr(SkipAsset, "bytes") else None)
+    if not bin_attr:
+        raise RuntimeError("SkipAsset model has neither 'data' nor 'bytes' column")
+    fields[bin_attr] = blob
+
+    # choose the right content type column name
+    ct_attr = "content_type" if hasattr(SkipAsset, "content_type") else ("mime" if hasattr(SkipAsset, "mime") else None)
+    if ct_attr:
+        fields[ct_attr] = content_type
+
+    return SkipAsset(**fields)  # type: ignore[arg-type]
+
+
 # Auth helpers
-# ──────────────────────────────────────────────────────────────────────────────
 def _admin_key_expected() -> Optional[str]:
     # Support either ADMIN_API_KEY or legacy SEED_API_KEY
     return getattr(settings, "ADMIN_API_KEY", None) or os.getenv("SEED_API_KEY")
@@ -264,7 +296,7 @@ async def create_skip(
     session.add(skip)
     await session.flush()  # get skip.id
 
-    # ---- generate label artifacts
+    # Generate assets (3 PNGs + 1 PDF)
     deeplink = _qr_deeplink(qr_code)
     png_bytes = make_qr_png(deeplink)
     meta = LabelMeta(qr_text=deeplink, qr_code=qr_code, org_name=org_name)
@@ -287,10 +319,22 @@ async def create_skip(
 
     # 3 PNG labels
     for i in range(1, 4):
-        session.add(SkipAsset(**_asset_kwargs("image/png", png_bytes, idx=i, kind=SkipAssetKind.label_png)))
+        session.add(_new_asset(
+            skip_id=str(skip.id),
+            kind=SkipAssetKind.label_png,
+            idx=i,
+            content_type="image/png",
+            blob=png_bytes,
+        ))
 
     # 1 PDF (three-up)
-    session.add(SkipAsset(**_asset_kwargs("application/pdf", pdf_bytes, idx=None, kind=SkipAssetKind.labels_pdf)))
+    session.add(_new_asset(
+        skip_id=str(skip.id),
+        kind=SkipAssetKind.labels_pdf,
+        idx=None,
+        content_type="application/pdf",
+        blob=pdf_bytes,
+    ))
 
     await session.commit()
 
