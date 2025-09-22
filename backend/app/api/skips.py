@@ -89,7 +89,7 @@ async def _insert_asset_row(
         values["id"] = str(uuid.uuid4())
 
     values["skip_id"] = str(skip_id)
-    values["kind"] = kind
+    values["kind"] = _kind_value(kind)
     if "idx" in cols.keys():
         values["idx"] = idx
 
@@ -137,6 +137,14 @@ def _asset_blob_and_ct(a):
     ct = getattr(a, "content_type", None) or getattr(a, "mime", "application/octet-stream")
     return blob, ct
 
+def _kind_value(v) -> str:
+    # turn Enum-like or anything into the actual string that is stored
+    if hasattr(v, "value"):
+        return str(v.value)
+    if isinstance(v, str):
+        return v
+    return str(v)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -161,7 +169,7 @@ async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str)
         await session.execute(
             select(SkipAsset).where(
                 SkipAsset.skip_id == str(skip.id),
-                SkipAsset.kind == SkipAssetKind.labels_pdf,
+                SkipAsset.kind == _kind_value(SkipAssetKind.labels_pdf),
             )
         )
     ).scalar_one_or_none()
@@ -178,7 +186,7 @@ async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str)
         await _insert_asset_row(
             session,
             skip_id=str(skip.id),
-            kind=SkipAssetKind.label_png,
+            kind=_kind_value(SkipAssetKind.label_png),
             idx=i,
             content_type="image/png",
             blob=png_bytes,
@@ -188,7 +196,7 @@ async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str)
     await _insert_asset_row(
         session,
         skip_id=str(skip.id),
-        kind=SkipAssetKind.labels_pdf,
+        kind=_kind_value(SkipAssetKind.label_png),
         idx=None,
         content_type="application/pdf",
         blob=pdf_bytes,
@@ -391,7 +399,7 @@ async def create_skip(
         await _insert_asset_row(
             session,
             skip_id=str(skip.id),
-            kind=SkipAssetKind.label_png,
+            kind=_kind_value(SkipAssetKind.label_png),
             idx=i,
             content_type="image/png",
             blob=png_bytes,
@@ -401,7 +409,7 @@ async def create_skip(
     await _insert_asset_row(
         session,
         skip_id=str(skip.id),
-        kind=SkipAssetKind.labels_pdf,
+        kind=_kind_value(SkipAssetKind.label_png),
         idx=None,
         content_type="application/pdf",
         blob=pdf_bytes,
@@ -431,7 +439,7 @@ async def get_skip_labels_pdf(
         await session.execute(
             select(SkipAsset).where(
                 SkipAsset.skip_id == str(skip_id),
-                SkipAsset.kind == SkipAssetKind.labels_pdf,
+                SkipAsset.kind == _kind_value(SkipAssetKind.label_png),
             )
         )
     ).scalar_one_or_none()
@@ -452,7 +460,7 @@ async def get_skip_label_png(
         await session.execute(
             select(SkipAsset).where(
                 SkipAsset.skip_id == str(skip_id),
-                SkipAsset.kind == SkipAssetKind.label_png,
+                SkipAsset.kind == _kind_value(SkipAssetKind.label_png),
                 SkipAsset.idx == idx,
             )
         )
