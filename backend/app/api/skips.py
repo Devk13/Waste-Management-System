@@ -413,29 +413,25 @@ async def get_skip_label_png(
 # -----------------------------------------------------------------------------
 # Debug: list stored assets for a skip (very helpful for validation)
 # -----------------------------------------------------------------------------
-@router.get("/{skip_id}/__assets", tags=["dev"])
-async def list_skip_assets(
+@router.get("/{skip_id}/__assets")
+async def debug_list_assets(
     skip_id: str,
     session: AsyncSession = Depends(get_db),
-    _: None = Depends(_admin_key_ok_q),
+    _: None = Depends(_admin_key_ok_q),  # allows ?key= or X-API-Key
 ):
-    rows = (
-        await session.execute(
-            select(SkipAsset).where(SkipAsset.skip_id == str(skip_id))
-        )
-    ).scalars().all()
-
-    def as_row(a):
-        return {
-            "id": str(getattr(a, "id", "")),
-            "skip_id": str(getattr(a, "skip_id", "")),
-            "kind": str(getattr(a, "kind", "")),
-            "idx": getattr(a, "idx", None),
-            "content_type": getattr(a, "content_type", None) or getattr(a, "mime", None),
-            "blob_len": len(getattr(a, "data", b"") or getattr(a, "bytes", b"") or b""),
-        }
-
-    return [as_row(a) for a in rows]
+    from sqlalchemy import func
+    blob_col = func.length(getattr(SkipAsset, "data", None) or getattr(SkipAsset, "bytes"))
+    ct_col = getattr(SkipAsset, "content_type", None) or getattr(SkipAsset, "mime")
+    rows = await session.execute(
+        select(
+            SkipAsset.kind,
+            SkipAsset.idx,
+            ct_col.label("content_type"),
+            blob_col.label("blob_len"),
+        ).where(SkipAsset.skip_id == str(skip_id))
+         .order_by(SkipAsset.kind, SkipAsset.idx)
+    )
+    return [dict(r._asdict()) for r in rows]
 
 @router.get("/{skip_id}/assets/_debug")
 async def debug_list_assets(
