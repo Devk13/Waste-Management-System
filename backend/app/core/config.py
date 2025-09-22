@@ -88,13 +88,13 @@ ROLLOFF_YARDS: List[int]  = [20, 30]
 
 # keys lower-case for simple lookups
 SKIP_COLOR_SPEC: Dict[str, ColorSpec] = {
-    "white":  {"waste": "Gypsum & plasterboard", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": WHEELIE_LITRES},
-    "grey":   {"waste": "Inert (concrete/brick/rubble)", "sizes_m3": SKIP_SIZES_M3, "rolloff_yd": ROLLOFF_YARDS},
-    "black":  {"waste": "Mixed general (non-recyclable)", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": [240, 660, 1100]},
-    "blue":   {"waste": "Clean metal (scrap, rebar offcuts)", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": [240, 660]},
-    "green":  {"waste": "Clean untreated wood/timber", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": [240, 660, 1100]},
-    "brown":  {"waste": "Packaging (cardboard, paper)", "wheelie_l": WHEELIE_LITRES, "notes": "Prefer baler bins where available."},
-    "orange": {"waste": "Hazardous (asbestos/chemicals)", "wheelie_l": [240, 660], "notes": "Secure-lid wheelies; sealed skips/drums."},
+    "White":  {"waste": "Gypsum & plasterboard", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": WHEELIE_LITRES},
+    "Grey":   {"waste": "Inert (concrete/brick/rubble)", "sizes_m3": SKIP_SIZES_M3, "rolloff_yd": ROLLOFF_YARDS},
+    "Black":  {"waste": "Mixed general (non-recyclable)", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": [240, 660, 1100]},
+    "Blue":   {"waste": "Clean metal (scrap, rebar offcuts)", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": [240, 660]},
+    "Green":  {"waste": "Clean untreated wood/timber", "sizes_m3": SKIP_SIZES_M3, "wheelie_l": [240, 660, 1100]},
+    "Brown":  {"waste": "Packaging (cardboard, paper)", "wheelie_l": WHEELIE_LITRES, "notes": "Prefer baler bins where available."},
+    "Orange": {"waste": "Hazardous (asbestos/chemicals)", "wheelie_l": [240, 660], "notes": "Secure-lid wheelies; sealed skips/drums."},
 }
 
 def get_skip_color_legend() -> Dict[str, ColorSpec]:

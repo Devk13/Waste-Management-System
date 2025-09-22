@@ -266,9 +266,9 @@ export const api = {
 export type SkipCreateIn = {
   qr: string;
   color: string;
-  size: string;
+  size: number;                 // number of m³ from the UI
   notes?: string;
-  owner_org_id?: string;
+  owner_org_id?: string;        // resolved UUID (optional)
 };
 
 /** Admin seed helper used by the UI form. Falls back to the dev ensure endpoint if the admin seed is gated. */
@@ -280,7 +280,7 @@ export async function adminCreateSkip(p: SkipCreateIn) {
       {
         qr_code: p.qr,          // backend expects qr_code
         color: p.color,
-        size: p.size,
+        size_m3: Number(p.size),
         notes: p.notes ?? undefined,
         owner_org_id: p.owner_org_id ?? undefined,
       },

@@ -1,22 +1,39 @@
-// ===========================
-// frontend/src/components/SkipCreationForm.tsx  (complete, fixed)
-// ===========================
+// frontend/src/components/SkipCreationForm.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { api, pretty, adminCreateSkip, type SkipCreateIn } from "../api";
+import { toast } from "../ui/toast";
 
 type MetaColors = Record<string, any>;
-type MetaSizes  = Record<string, Array<string | number>>;
-type MetaShape  = { skip: { colors: MetaColors; sizes: MetaSizes } };
+type MetaSizes = Record<string, Array<string | number>>;
+type MetaShape = { skip: { colors: MetaColors; sizes: MetaSizes } };
 
-export default function SkipCreateForm(
-  { onSeed }: { onSeed?: (qr: string) => void }
-) {
+// quick UUID detector
+function looksLikeUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s.trim());
+}
+
+async function resolveContractorIdByName(name: string): Promise<string | null> {
+  try {
+    const list = await api.listContractors(); // [{id, org_name, ...}]
+    const lower = name.trim().toLowerCase();
+    // exact match first
+    let hit = list.find((c: any) => String(c.org_name || "").toLowerCase() === lower);
+    if (hit) return hit.id;
+    // then lenient "starts with"
+    hit = list.find((c: any) => String(c.org_name || "").toLowerCase().startsWith(lower));
+    return hit?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export default function SkipCreateForm({ onSeed }: { onSeed?: (qr: string) => void }) {
   const [meta, setMeta] = useState<MetaShape | null>(null);
   const [qr, setQr] = useState("QR-NEW-001");
   const [color, setColor] = useState("");
-  const [size, setSize] = useState("");
+  const [size, setSize] = useState("");           // UI keeps it a string; we coerce to number on submit
   const [notes, setNotes] = useState("");
-  const [ownerOrgId, setOwnerOrgId] = useState("ORG1"); // <-- moved here (top-level hook)
+  const [ownerOrg, setOwnerOrg] = useState("");   // free text: name OR uuid
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<any>(null);
 
@@ -24,7 +41,7 @@ export default function SkipCreateForm(
     let alive = true;
     (async () => {
       try {
-        const m = await api.meta();      // normalized meta()
+        const m = await api.meta(); // normalized meta
         if (alive) setMeta(m);
       } catch {
         if (alive) setMeta(null);
@@ -44,7 +61,7 @@ export default function SkipCreateForm(
   const groupedSizeOptions = useMemo(() => {
     const sizes = meta?.skip?.sizes ?? {};
     return Object.entries(sizes).map(([group, items]) => {
-      const arr = (items as Array<string | number>).map(v => {
+      const arr = (items as Array<string | number>).map((v) => {
         const s = String(v);
         return { value: s, label: s };
       });
@@ -53,22 +70,46 @@ export default function SkipCreateForm(
   }, [meta]);
 
   const submit = async () => {
-    if (!qr || !color || !size) { setOut({ error: "Missing required fields" }); return; }
+    if (!qr || !color || !size) {
+      setOut({ error: "Missing required fields" });
+      return;
+    }
     setBusy(true);
     try {
+      // Resolve owner org: allow uuid or name
+      let owner_org_id: string | undefined;
+      if (ownerOrg.trim()) {
+        if (looksLikeUuid(ownerOrg)) {
+          owner_org_id = ownerOrg.trim();
+        } else {
+          const found = await resolveContractorIdByName(ownerOrg);
+          if (!found) {
+            const msg = `No contractor found named "${ownerOrg}". Create it in Contractors Admin first, then try again.`;
+            setOut({ error: msg });
+            toast.error(msg);
+            return;
+          }
+          owner_org_id = found;
+        }
+      }
+
+      // Build payload; adminCreateSkip will send size_m3 internally
       const payload: SkipCreateIn = {
         qr,
         color,
-        size,
+        size: Number(size),                 // important: backend expects size_m3 as a number
         notes: notes || undefined,
-        owner_org_id: ownerOrgId?.trim() || undefined,
+        owner_org_id,                       // uuid or undefined
       };
+
       const res = await adminCreateSkip(payload);
       setOut(res);
       const seeded = (res as any)?.qr_code ?? (res as any)?.qr ?? qr;
       onSeed?.(seeded);
+      toast.success("Skip created/seeded");
     } catch (e: any) {
       setOut({ error: e?.message || "Request failed", detail: e?.response?.data ?? e });
+      toast.error(e?.message || "Seed failed");
     } finally {
       setBusy(false);
     }
@@ -78,6 +119,7 @@ export default function SkipCreateForm(
     <section className="card">
       <h2>Create/Seed Skip</h2>
       {!meta ? <p className="muted">Loading meta…</p> : null}
+
       <div className="grid3">
         <label>QR
           <input value={qr} onChange={(e) => setQr(e.target.value)} placeholder="QR code" />
@@ -110,9 +152,9 @@ export default function SkipCreateForm(
         </label>
         <label>Owner Org (optional)
           <input
-            value={ownerOrgId}
-            onChange={(e) => setOwnerOrgId(e.target.value)}
-            placeholder="e.g. ORG1"
+            value={ownerOrg}
+            onChange={(e) => setOwnerOrg(e.target.value)}
+            placeholder="e.g. ACME LTD or UUID"
           />
         </label>
       </div>
