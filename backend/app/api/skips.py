@@ -409,7 +409,7 @@ async def create_skip(
     await _insert_asset_row(
         session,
         skip_id=str(skip.id),
-        kind=_kind_value(SkipAssetKind.label_png),
+        kind=_kind_value(SkipAssetKind.labels_pdf),
         idx=None,
         content_type="application/pdf",
         blob=pdf_bytes,
