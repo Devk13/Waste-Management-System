@@ -1,25 +1,31 @@
+# backend/app/api/skips.py
 from __future__ import annotations
+
+import os
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
-import os                                              
-from fastapi import APIRouter, Depends, Header, HTTPException, status       
-from pydantic import BaseModel                                              
-from sqlalchemy.ext.asyncio import AsyncSession                             
-from app.core.config import settings                                       
-from app.models.models import Skip
+from typing import Any, Optional
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    status,
+)
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
-from app.models import SkipStatus
-from app.models import SkipPlacement as DBPlacement
-from app.api.deps import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
-
+from app.core.config import settings
+from app.api.deps import get_db, get_current_user
+from app.models.models import Skip
 from app.models.labels import SkipAsset, SkipAssetKind
 from app.schemas.skip import SkipCreate, SkipOut
 from app.services.qr_labels import LabelMeta, make_qr_png, make_three_up_pdf
 
-# Optional Organization support (skip gracefully if your model isn’t present)
+# Optional Organization model (skip gracefully if not present)
 try:
     from app.models.organization import Organization  # type: ignore
 except Exception:  # pragma: no cover
@@ -27,23 +33,101 @@ except Exception:  # pragma: no cover
 
 router = APIRouter(prefix="/skips", tags=["skips"])
 
-# ---------------------------------------------------------------------------
-# TEMP smoke-test helper: /skips/_seed (guarded by ADMIN_API_KEY)
-# Remove this endpoint and the ADMIN_API_KEY env var after your smoke tests.
-# ---------------------------------------------------------------------------
 
-# ── single, robust guard for seed endpoint ────────────────────────────────────
-def _admin_key_ok(
-    x_api_key: str | None = Header(None)  # header is "X-Api-Key"
-) -> None:
-    expected = settings.ADMIN_API_KEY or os.getenv("SEED_API_KEY")
+# ──────────────────────────────────────────────────────────────────────────────
+# Auth helpers
+# ──────────────────────────────────────────────────────────────────────────────
+def _admin_key_expected() -> Optional[str]:
+    # Support either ADMIN_API_KEY or legacy SEED_API_KEY
+    return getattr(settings, "ADMIN_API_KEY", None) or os.getenv("SEED_API_KEY")
 
+
+def _admin_key_ok(x_api_key: str | None = Header(None, alias="X-API-Key")) -> None:
+    expected = _admin_key_expected()
     if not expected or x_api_key != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
+def _admin_key_ok_q(
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    key: str | None = Query(None),
+) -> None:
+    """
+    Accept admin key from header OR from query string (?key=...),
+    so new-tab links can work without custom headers.
+    """
+    expected = _admin_key_expected()
+    if expected and (x_api_key == expected or key == expected):
+        return
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+def _qr_deeplink(code: str) -> str:
+    base = getattr(settings, "DRIVER_QR_BASE_URL", "")
+    if base:
+        return f"{base.rstrip('/')}/driver/qr/{code}"
+    return code
+
+
+def _to_int(v) -> Optional[int]:
+    if v is None:
+        return None
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return None
+
+
+async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str) -> None:
+    """Create PNG+PDF assets if they don't exist yet."""
+    # Any labels PDF already?
+    existing_pdf = (
+        await session.execute(
+            select(SkipAsset).where(
+                SkipAsset.skip_id == str(skip.id),
+                SkipAsset.kind == SkipAssetKind.labels_pdf,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_pdf:
+        return
+
+    deeplink = _qr_deeplink(skip.qr_code)
+    png_bytes = make_qr_png(deeplink)
+    meta = LabelMeta(qr_text=deeplink, qr_code=skip.qr_code, org_name=org_name)
+    pdf_bytes = make_three_up_pdf(meta, png_bytes)
+
+    for i in range(1, 4):
+        session.add(
+            SkipAsset(
+                skip_id=str(skip.id),
+                kind=SkipAssetKind.label_png,
+                idx=i,
+                content_type="image/png",
+                data=png_bytes,
+            )
+        )
+
+    session.add(
+        SkipAsset(
+            skip_id=str(skip.id),
+            kind=SkipAssetKind.labels_pdf,
+            idx=None,
+            content_type="application/pdf",
+            data=pdf_bytes,
+        )
+    )
+    await session.flush()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DEV seed endpoint (guarded) — now creates label assets too
+# ──────────────────────────────────────────────────────────────────────────────
 class SeedIn(BaseModel):
-    # allow either id or plain name for the owner org
+    # owner org by id or by name
     owner_org_id: str | None = None
     owner_org_name: str | None = None
 
@@ -56,13 +140,6 @@ class SeedIn(BaseModel):
     color: str | None = None
     notes: str | None = None
 
-def _to_int(v):
-    if v is None:
-        return None
-    try:
-        return int(str(v).strip())
-    except Exception:
-        return None
 
 @router.post("/_seed", status_code=201, tags=["dev"])
 async def seed_skip(
@@ -73,22 +150,14 @@ async def seed_skip(
     # 1) normalize qr
     qr = (body.qr_code or body.qr or "").strip()
     if not qr:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"fields": {"qr_code": "Field required"}})
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"fields": {"qr_code": "Field required"}},
+        )
 
-    # 2) idempotent by qr_code
-    existing = (
-        await session.execute(select(Skip).where(Skip.qr_code == qr))
-    ).scalar_one_or_none()
-    if existing:
-        return {"id": str(existing.id), "qr_code": existing.qr_code}
-
-    # 3) instantiate without unsupported kwargs, then set attributes that exist
-    sk = Skip()
-    if hasattr(Skip, "qr_code"):
-        sk.qr_code = qr
-
-    # owner org: by id or by name (if Organization available)
-    owner_id = (body.owner_org_id or "").strip() or None
+    # 2) resolve org (optional)
+    owner_id: Optional[str] = (body.owner_org_id or "").strip() or None
+    org_name = "OWNER"
     if not owner_id and body.owner_org_name and Organization is not None:
         row = await session.execute(
             select(Organization).where(getattr(Organization, "name") == body.owner_org_name)
@@ -96,44 +165,56 @@ async def seed_skip(
         org = row.scalar_one_or_none()
         if not org:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Owner org not found")
-        owner_id = getattr(org, "id")
+        owner_id = str(getattr(org, "id"))
+        org_name = getattr(org, "name", org_name)
+    elif body.owner_org_name:
+        # no Organization model, but we still want a nice label
+        org_name = body.owner_org_name
 
+    # 3) idempotent by qr_code — and ensure assets if missing
+    existing = (
+        await session.execute(select(Skip).where(Skip.qr_code == qr))
+    ).scalar_one_or_none()
+    if existing:
+        await _ensure_label_assets(session, existing, org_name)
+        await session.commit()
+        return {"id": str(existing.id), "qr_code": existing.qr_code}
+
+    # 4) instantiate skip safely
+    sk = Skip()
+    if hasattr(Skip, "qr_code"):
+        sk.qr_code = qr
     if owner_id and hasattr(Skip, "owner_org_id"):
         sk.owner_org_id = owner_id
-
     if body.color and hasattr(Skip, "color"):
         sk.color = body.color
     if body.notes and hasattr(Skip, "notes"):
         sk.notes = body.notes
 
-    # 4) map human "size" to whatever capacity column your model has
+    # size/capacity mapping — use the first column that exists
     size_val = _to_int(body.size)
     if size_val is not None:
         for col in ("size_m3", "capacity_m3", "size", "wheelie_l", "capacity_l", "rolloff_yd"):
             if hasattr(Skip, col):
                 setattr(sk, col, size_val)
-                break  # stop at the first match
+                break
 
-    # 5) persist
+    # 5) persist + assets
     session.add(sk)
     try:
         await session.flush()
+        await _ensure_label_assets(session, sk, org_name)
         await session.commit()
-    except Exception as e:
+    except Exception:
         await session.rollback()
-        # keep the concise message you already used for smoke test UX
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="seed_failed")
 
     return {"id": str(getattr(sk, "id", "")), "qr_code": getattr(sk, "qr_code", qr)}
 
 
-def _qr_deeplink(code: str) -> str:
-    base = settings.DRIVER_QR_BASE_URL
-    if base:
-        return f"{base.rstrip('/')}/driver/qr/{code}"
-    return code
-
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Admin create (unchanged) — also creates label assets
+# ──────────────────────────────────────────────────────────────────────────────
 @router.post("", response_model=SkipOut, status_code=201)
 async def create_skip(
     payload: SkipCreate,
@@ -164,7 +245,7 @@ async def create_skip(
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="qr_code already exists")
 
-    # ── IMPORTANT: cast UUIDs → str for SQLite-safe inserts ───────────────
+    # cast UUID-ish fields to str for safety
     owner_org_id = str(payload.owner_org_id)
     assigned_id = (
         str(payload.assigned_commodity_id) if payload.assigned_commodity_id else None
@@ -183,34 +264,8 @@ async def create_skip(
     session.add(skip)
     await session.flush()  # get skip.id
 
-    # Generate assets
-    deeplink = _qr_deeplink(qr_code)
-    png_bytes = make_qr_png(deeplink)
-    meta = LabelMeta(qr_text=deeplink, qr_code=qr_code, org_name=org_name)
-    pdf_bytes = make_three_up_pdf(meta, png_bytes)
-
-    # Store 3 PNGs + 1 PDF (skip_id must be string if your SkipAsset.skip_id is String)
-    for i in range(1, 4):
-        session.add(
-            SkipAsset(
-                skip_id=str(skip.id),
-                kind=SkipAssetKind.label_png,
-                idx=i,
-                content_type="image/png",
-                data=png_bytes,
-            )
-        )
-
-    session.add(
-        SkipAsset(
-            skip_id=str(skip.id),
-            kind=SkipAssetKind.labels_pdf,
-            idx=None,
-            content_type="application/pdf",
-            data=pdf_bytes,
-        )
-    )
-
+    # Generate + store assets
+    await _ensure_label_assets(session, skip, org_name)
     await session.commit()
 
     return SkipOut(
@@ -222,15 +277,15 @@ async def create_skip(
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Labels (PNG/PDF) — allow ?key=...
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get("/{skip_id}/labels.pdf")
 async def get_skip_labels_pdf(
     skip_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),
+    _: None = Depends(_admin_key_ok_q),
 ):
-    if getattr(user, "role", None) != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin only")
-
     asset = (
         await session.execute(
             select(SkipAsset).where(
@@ -238,7 +293,7 @@ async def get_skip_labels_pdf(
                 SkipAsset.kind == SkipAssetKind.labels_pdf,
             )
         )
-    ).scalars().first()
+    ).scalar_one_or_none()
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Labels PDF not found")
 
@@ -250,11 +305,8 @@ async def get_skip_label_png(
     skip_id: uuid.UUID,
     idx: int,
     session: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),
+    _: None = Depends(_admin_key_ok_q),
 ):
-    if getattr(user, "role", None) != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin only")
-
     asset = (
         await session.execute(
             select(SkipAsset).where(
@@ -263,7 +315,7 @@ async def get_skip_label_png(
                 SkipAsset.idx == idx,
             )
         )
-    ).scalars().first()
+    ).scalar_one_or_none()
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Label PNG not found")
 

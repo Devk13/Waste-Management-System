@@ -17,8 +17,17 @@ type PanelResult = { title: string; payload: any; at: string };
 type Versions = { backend?: { env?: string; sha?: string; built_at?: string } };
 
 function safeNum(v: string): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+
 function driverLabel(d:any){ return d?.full_name ?? d?.name ?? d?.email ?? d?.phone ?? "(unnamed)"; }
+
 function vehicleLabel(v:any){ return v?.reg_no ?? v?.plate ?? v?.id ?? "(no reg)"; }
+
+function openWithParams(base: string, path: string, params: Record<string,string>) {
+  const url = new URL(path, base);
+  Object.entries(params).forEach(([k,v]) => { if (v) url.searchParams.set(k, v); });
+  window.open(url.toString(), "_blank");
+}
+
 function findWtnUrl(resp: unknown): string | null {
   if (!resp || typeof resp !== "object") return null;
   const obj = resp as Record<string, unknown>;
@@ -346,18 +355,19 @@ export default function App() {
             <button disabled={busy} onClick={() => run("__admin/bootstrap", api.bootstrap)}>Bootstrap DB </button>
             <button disabled={busy} onClick={()=>run("skips/__smoke", api.skipsSmoke)}>Skips Smoke</button>
             <button disabled={busy} onClick={fetchVersions}>Versions</button>
-            <button disabled={busy} onClick={async ()=>{
-              const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
-              const u = r?.items?.[0]?.pdf_url; if (!u) return;
-              const href = `${joinUrl(cfg.base, u)}?format=html`;
-              window.open(href, "_blank");
-            }}>Open Latest WTN (HTML)</button>
-            <button disabled={busy} onClick={async ()=>{
-              const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
-              const u = r?.items?.[0]?.pdf_url; if (!u) return;
-              const href = `${joinUrl(cfg.base, u)}?format=pdf`;
-              window.open(href, "_blank");
-            }}>Open Latest WTN (PDF)</button>
+            // HTML
+              <button disabled={busy} onClick={async ()=>{
+                const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
+                const u = r?.items?.[0]?.pdf_url; if (!u) { toast.error("No recent WTN"); return; }
+                openWithParams(cfg.base, u, { format: "html", key: cfg.adminKey || "" });
+              }}>Open Latest WTN (HTML)</button>
+
+              // PDF
+              <button disabled={busy} onClick={async ()=>{
+                const r:any = await run("__debug/wtns", ()=>api.latestWtns(1));
+                const u = r?.items?.[0]?.pdf_url; if (!u) { toast.error("No recent WTN"); return; }
+                openWithParams(cfg.base, u, { format: "pdf", key: cfg.adminKey || "" });
+              }}>Open Latest WTN (PDF)</button>
           </div>
         </section>
 
