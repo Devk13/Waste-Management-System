@@ -420,18 +420,23 @@ async def debug_list_assets(
     _: None = Depends(_admin_key_ok_q),  # allows ?key= or X-API-Key
 ):
     from sqlalchemy import func
+
     blob_col = func.length(getattr(SkipAsset, "data", None) or getattr(SkipAsset, "bytes"))
     ct_col = getattr(SkipAsset, "content_type", None) or getattr(SkipAsset, "mime")
+
     rows = await session.execute(
         select(
             SkipAsset.kind,
             SkipAsset.idx,
             ct_col.label("content_type"),
             blob_col.label("blob_len"),
-        ).where(SkipAsset.skip_id == str(skip_id))
-         .order_by(SkipAsset.kind, SkipAsset.idx)
+        )
+        .where(SkipAsset.skip_id == str(skip_id))
+        .order_by(SkipAsset.kind, SkipAsset.idx)
     )
-    return [dict(r._asdict()) for r in rows]
+
+    # Row -> dict safely in SA 2.0
+    return [dict(r._mapping) for r in rows]
 
 @router.get("/{skip_id}/assets/_debug")
 async def debug_list_assets(
@@ -453,3 +458,7 @@ async def debug_list_assets(
             "size_bytes": len(blob) if blob else 0,
         })
     return {"assets": out}
+
+@router.get("/__routes")
+def _skips_routes():
+    return sorted([getattr(r, "path", "") for r in router.routes if getattr(r, "path", "")])
