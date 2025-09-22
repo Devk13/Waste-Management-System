@@ -300,16 +300,15 @@ async def create_skip(
     meta = LabelMeta(qr_text=deeplink, qr_code=qr_code, org_name=org_name)
     pdf_bytes = make_three_up_pdf(meta, png_bytes)
 
-    # PNGs
     for i in range(1, 4):
         await _insert_asset_row(
-            session,
-            skip_id=str(skip.id),
-            kind=SkipAssetKind.label_png,   # <-- FIXED: PNG kind
-            idx=i,
-            content_type="image/png",
-            blob=png_bytes,
-        )
+        session,
+        skip_id=str(skip.id),
+        kind=_kind_value(SkipAssetKind.label_png),
+        idx=i,
+        content_type="image/png",
+        blob=png_bytes,
+    )
 
     # PDF
     await _insert_asset_row(
@@ -340,25 +339,32 @@ async def get_skip_labels_pdf(
     session: AsyncSession = Depends(get_db),
     _: None = Depends(_admin_key_ok_q),  # header OR ?key=
 ):
-    k_pdf = _kind_value(SkipAssetKind.labels_pdf)
-    conditions = [SkipAsset.skip_id == str(skip_id)]
-    # kind OR content-type/mime
-    kind_or_ct = [SkipAsset.kind == k_pdf]
-    if hasattr(SkipAsset, "content_type"):
-        kind_or_ct.append(SkipAsset.content_type == "application/pdf")
-    if hasattr(SkipAsset, "mime"):
-        kind_or_ct.append(SkipAsset.mime == "application/pdf")
+    conds = [
+        SkipAsset.skip_id == str(skip_id),
+    ]
+    # match by kind or by content type (handles any past rows with mismatched kind)
+    kind_match = (SkipAsset.kind == _kind_value(SkipAssetKind.labels_pdf))
+    ct_col = getattr(SkipAsset, "content_type", None)
+    mime_col = getattr(SkipAsset, "mime", None)
 
-    asset = (
-        await session.execute(
-            select(SkipAsset).where(*conditions, or_(*kind_or_ct))
-        )
-    ).scalar_one_or_none()
+    type_match = []
+    if ct_col is not None:
+        type_match.append(SkipAsset.content_type == "application/pdf")
+    if mime_col is not None:
+        type_match.append(SkipAsset.mime == "application/pdf")
+
+    stmt = select(SkipAsset).where(
+        or_(kind_match, *type_match),
+        SkipAsset.skip_id == str(skip_id),
+    )
+
+    asset = (await session.execute(stmt)).scalar_one_or_none()
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Labels PDF not found")
 
     blob, ct = _asset_blob_and_ct(asset)
-    return StreamingResponse(iter([blob]), media_type=ct)
+    return StreamingResponse(iter([blob]), media_type=ct or "application/pdf")
+
 
 @router.get("/{skip_id}/labels/{idx}.png")
 async def get_skip_label_png(
@@ -367,24 +373,25 @@ async def get_skip_label_png(
     session: AsyncSession = Depends(get_db),
     _: None = Depends(_admin_key_ok_q),  # header OR ?key=
 ):
-    k_png = _kind_value(SkipAssetKind.label_png)
-    conditions = [SkipAsset.skip_id == str(skip_id), SkipAsset.idx == idx]
-    kind_or_ct = [SkipAsset.kind == k_png]
+    kind_match = (SkipAsset.kind == _kind_value(SkipAssetKind.label_png))
+    type_match = []
     if hasattr(SkipAsset, "content_type"):
-        kind_or_ct.append(SkipAsset.content_type == "image/png")
+        type_match.append(SkipAsset.content_type == "image/png")
     if hasattr(SkipAsset, "mime"):
-        kind_or_ct.append(SkipAsset.mime == "image/png")
+        type_match.append(SkipAsset.mime == "image/png")
 
-    asset = (
-        await session.execute(
-            select(SkipAsset).where(*conditions, or_(*kind_or_ct))
-        )
-    ).scalar_one_or_none()
+    stmt = select(SkipAsset).where(
+        SkipAsset.skip_id == str(skip_id),
+        SkipAsset.idx == idx,
+        or_(kind_match, *type_match),
+    )
+
+    asset = (await session.execute(stmt)).scalar_one_or_none()
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Label PNG not found")
 
     blob, ct = _asset_blob_and_ct(asset)
-    return StreamingResponse(iter([blob]), media_type=ct)
+    return StreamingResponse(iter([blob]), media_type=ct or "image/png")
 
 # -----------------------------------------------------------------------------
 # Debug: list stored assets for a skip (very helpful for validation)
@@ -408,3 +415,26 @@ async def debug_assets(
             "bytes": (len(blob) if blob else 0),
         })
     return {"items": out, "count": len(out)}
+
+@router.get("/{skip_id}/assets/_debug")
+async def debug_list_assets(
+    skip_id: str,
+    session: AsyncSession = Depends(get_db),
+    _: None = Depends(_admin_key_ok_q),
+):
+    rows = (await session.execute(
+        select(SkipAsset).where(SkipAsset.skip_id == str(skip_id))
+    )).scalars().all()
+
+    out = []
+    for a in rows:
+        blob, ct = _asset_blob_and_ct(a)
+        out.append({
+            "id": getattr(a, "id", None),
+            "skip_id": getattr(a, "skip_id", None),
+            "kind": getattr(a, "kind", None),
+            "idx": getattr(a, "idx", None),
+            "content_type": getattr(a, "content_type", None) or getattr(a, "mime", None),
+            "size_bytes": len(blob) if blob else 0,
+        })
+    return {"assets": out}
