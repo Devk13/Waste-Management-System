@@ -1,6 +1,6 @@
 // frontend/src/components/SkipCreationForm.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { api, pretty, adminCreateSkip, type SkipCreateIn } from "../api";
+import { api, pretty, adminCreateSkip, type SkipCreateIn, getConfig } from "../api";
 import { toast } from "../ui/toast";
 
 type MetaColors = Record<string, any>;
@@ -171,6 +171,28 @@ export default function SkipCreateForm({ onSeed }: { onSeed?: (qr: string) => vo
           <details open className="result">
             <summary><strong>Result</strong></summary>
             <pre>{pretty(out)}</pre>
+
+            {(() => {
+              // try to discover the new skip id from the response
+              const skipId =
+                (out && (out.id || out.skip_id)) ? String(out.id || out.skip_id) : null;
+              if (!skipId) return null;
+
+              const base = (getConfig().base || "").replace(/\/+$/, "");
+              const pdf  = `${base}/skips/${skipId}/labels.pdf`;
+              const png1 = `${base}/skips/${skipId}/labels/1.png`;
+              const png2 = `${base}/skips/${skipId}/labels/2.png`;
+              const png3 = `${base}/skips/${skipId}/labels/3.png`;
+
+              return (
+                <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                  <a className="btn" href={pdf}  target="_blank" rel="noreferrer">Open Labels (PDF)</a>
+                  <a className="btn" href={png1} target="_blank" rel="noreferrer">PNG 1</a>
+                  <a className="btn" href={png2} target="_blank" rel="noreferrer">PNG 2</a>
+                  <a className="btn" href={png3} target="_blank" rel="noreferrer">PNG 3</a>
+                </div>
+              );
+            })()}
           </details>
         ) : null}
       </div>

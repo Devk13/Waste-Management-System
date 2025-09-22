@@ -93,6 +93,17 @@ async function del<T = any>(url: string) {
 
 // ---- API surface -----------------------------------------------------------
 export type FieldErrors = Record<string, string>;
+
+export type Contractor = {
+  id: string;
+  org_name: string;
+  contact_name?: string;
+  email?: string;
+  phone?: string;
+  billing_address?: string;
+  active?: boolean;
+};
+
 export class ApiError extends Error {
   code: number;
   fields?: FieldErrors;
@@ -247,10 +258,21 @@ export const api = {
     patch(`/admin/contractors/${id}`, p),
   deleteContractor: (id: string) => del(`/admin/contractors/${id}`),
 
-  // bin assignments
-  listCurrentOwner: (qr: string) => get(`/admin/bin-assignments/current?qr=${encodeURIComponent(qr)}`),
-  assignBin: (p: { qr: string; contractor_id: string }) => post("/admin/bin-assignments/assign", p),
-  unassignBin: (p: { qr: string; contractor_id?: string }) => post("/admin/bin-assignments/unassign", p),
+  // --- bin assignments (match backend: expects QUERY params `skip_qr`, `contractor_id`) ---
+ listCurrentOwner: (qr: string) =>
+   get(`/admin/bin-assignments/current?skip_qr=${encodeURIComponent(qr)}`),
+
+ assignBin: (p: { qr: string; contractor_id: string }) =>
+   post(
+     `/admin/bin-assignments/assign?skip_qr=${encodeURIComponent(p.qr)}&contractor_id=${encodeURIComponent(p.contractor_id)}`
+   ),
+
+ unassignBin: (p: { qr: string; contractor_id?: string }) =>
+   post(
+     `/admin/bin-assignments/unassign?skip_qr=${encodeURIComponent(p.qr)}${
+       p.contractor_id ? `&contractor_id=${encodeURIComponent(p.contractor_id)}` : ""
+     }`
+   ),
 
   // jobs & driver schedule
   listJobs: (status?: string) => get(status ? `/admin/jobs?status=${encodeURIComponent(status)}` : "/admin/jobs"),
