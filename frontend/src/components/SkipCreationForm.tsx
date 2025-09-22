@@ -1,6 +1,7 @@
 // frontend/src/components/SkipCreationForm.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { api, pretty, adminCreateSkip, type SkipCreateIn, getConfig } from "../api";
+import { api, pretty, adminCreateSkip, type SkipCreateIn } from "../api";
+import { getConfig } from "../lib/devConfig";
 import { toast } from "../ui/toast";
 
 type MetaColors = Record<string, any>;
@@ -37,6 +38,9 @@ export default function SkipCreateForm({ onSeed }: { onSeed?: (qr: string) => vo
   const [busy, setBusy] = useState(false);
   const [out, setOut] = useState<any>(null);
 
+  // ✅ NEW: store the server-generated skip id for label buttons
+  const [seededId, setSeededId] = useState<string | null>(null);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -68,6 +72,18 @@ export default function SkipCreateForm({ onSeed }: { onSeed?: (qr: string) => vo
       return { group, items: arr };
     });
   }, [meta]);
+
+  // ✅ NEW: open a backend URL in a new tab with ?key=<ADMIN_API_KEY>
+  const openWithAdminKey = (path: string) => {
+    const { baseUrl, adminKey } = getConfig(); // import from "../lib/devConfig"
+    if (!baseUrl || !adminKey) {
+      // optional toast if you use it:
+      // toast.error("Set Base URL + Admin Key in Config");
+      return;
+    }
+    const url = `${baseUrl}${path}${path.includes("?") ? "&" : "?"}key=${encodeURIComponent(adminKey)}`;
+    window.open(url, "_blank", "noopener");
+  };
 
   const submit = async () => {
     if (!qr || !color || !size) {
@@ -104,6 +120,11 @@ export default function SkipCreateForm({ onSeed }: { onSeed?: (qr: string) => vo
 
       const res = await adminCreateSkip(payload);
       setOut(res);
+
+      // ✅ NEW: capture the created/seeded skip id for label buttons
+      const id = String((res as any)?.id ?? "");
+      if (id) setSeededId(id);
+
       const seeded = (res as any)?.qr_code ?? (res as any)?.qr ?? qr;
       onSeed?.(seeded);
       toast.success("Skip created/seeded");
@@ -173,26 +194,39 @@ export default function SkipCreateForm({ onSeed }: { onSeed?: (qr: string) => vo
             <pre>{pretty(out)}</pre>
 
             {(() => {
-              // try to discover the new skip id from the response
-              const skipId =
-                (out && (out.id || out.skip_id)) ? String(out.id || out.skip_id) : null;
+              // get skip id from result
+              const skipId = out?.id ? String(out.id) : out?.skip_id ? String(out.skip_id) : null;
               if (!skipId) return null;
 
-              const base = (getConfig().base || "").replace(/\/+$/, "");
-              const pdf  = `${base}/skips/${skipId}/labels.pdf`;
-              const png1 = `${base}/skips/${skipId}/labels/1.png`;
-              const png2 = `${base}/skips/${skipId}/labels/2.png`;
-              const png3 = `${base}/skips/${skipId}/labels/3.png`;
+              // Base URL + Admin Key from Config
+              const { baseUrl, adminKey } = getConfig(); // make sure this is imported from "../lib/devConfig"
+              const cleanBase = (baseUrl || "").replace(/\/+$/, "");
+
+              // helper to append ?key=... correctly
+              const withKey = (path: string) =>
+                adminKey
+                  ? `${cleanBase}${path}${path.includes("?") ? "&" : "?"}key=${encodeURIComponent(adminKey)}`
+                  : null;
+
+              const pdf  = withKey(`/skips/${skipId}/labels.pdf`);
+              const png1 = withKey(`/skips/${skipId}/labels/1.png`);
+              const png2 = withKey(`/skips/${skipId}/labels/2.png`);
+              const png3 = withKey(`/skips/${skipId}/labels/3.png`);
+
+              if (!pdf) {
+                return <div className="muted text-sm">Set Config → <strong>Admin Key</strong> to open labels.</div>;
+              }
 
               return (
                 <div className="row" style={{ gap: 8, marginTop: 8 }}>
                   <a className="btn" href={pdf}  target="_blank" rel="noreferrer">Open Labels (PDF)</a>
-                  <a className="btn" href={png1} target="_blank" rel="noreferrer">PNG 1</a>
-                  <a className="btn" href={png2} target="_blank" rel="noreferrer">PNG 2</a>
-                  <a className="btn" href={png3} target="_blank" rel="noreferrer">PNG 3</a>
+                  <a className="btn" href={png1!} target="_blank" rel="noreferrer">PNG 1</a>
+                  <a className="btn" href={png2!} target="_blank" rel="noreferrer">PNG 2</a>
+                  <a className="btn" href={png3!} target="_blank" rel="noreferrer">PNG 3</a>
                 </div>
               );
             })()}
+
           </details>
         ) : null}
       </div>

@@ -4,53 +4,35 @@ export type DevCfg = {
   baseUrl: string;
   driverKey?: string;
   adminKey?: string;
-
-  // NEW
-  driverName?: string;
-
-  // Legacy (still read, but we won't write it anymore)
-  driverId?: string;
+  driverName?: string;   // optional, for “Driver · My Tasks”
+  driverId?: string;     // optional, legacy
 };
 
-const KEY = "wm_dev_console_cfg";
+const STORAGE_KEY = "wm.devcfg.v1";
+let cache: DevCfg | null = null;
 
 /** Read config from localStorage with legacy fallbacks. */
+function normalizeBaseUrl(s: string): string {
+  const v = (s || "").trim().replace(/\s+/g, "");
+  return v.replace(/\/+$/, ""); // strip trailing slashes
+}
+
 export function loadCfg(): DevCfg {
+  if (cache) return cache;
   try {
-    const raw = localStorage.getItem(KEY);
-    const cur = raw ? JSON.parse(raw) as Partial<DevCfg> : {};
-
-    // legacy store used by older panels
-    const legacyRaw = localStorage.getItem("wm_console_cfg");
-    const legacy = legacyRaw ? JSON.parse(legacyRaw) as any : {};
-
-    const baseUrl   = String(cur.baseUrl   ?? legacy.base   ?? "");
-    const driverKey = String(cur.driverKey ?? legacy.apiKey ?? "");
-    const adminKey  = String(cur.adminKey  ?? legacy.adminKey ?? "");
-
-    // prefer name; fall back to any old id if present
-    const driverName = String(
-      (cur.driverName ?? legacy.driverName ?? cur.driverId ?? legacy.driverId ?? "")
-    );
-
-    return { baseUrl, driverKey, adminKey, driverName };
-  } catch {
-    return { baseUrl: "" };
-  }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) cache = JSON.parse(raw) as DevCfg;
+  } catch {}
+  cache = cache ?? { baseUrl: "" };
+  return cache;
 }
 
-/** Save (merge) config. We write `driverName`, not `driverId`. */
-export function saveCfg(next: Partial<DevCfg>) {
-  const cur = loadCfg();
-  const merged: DevCfg = {
-    baseUrl: (next.baseUrl ?? cur.baseUrl ?? "").replace(/\/+$/, ""),
-    driverKey: next.driverKey ?? cur.driverKey,
-    adminKey:  next.adminKey  ?? cur.adminKey,
-    driverName: next.driverName ?? cur.driverName,
-  };
-  localStorage.setItem(KEY, JSON.stringify(merged));
+export function saveCfg(next: DevCfg): void {
+  cache = { ...loadCfg(), ...next, baseUrl: normalizeBaseUrl(next.baseUrl) };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
 }
 
-export function resetCfg() {
-  localStorage.removeItem(KEY);
+export function getConfig(): DevCfg {
+  // simple alias used by components that just need the latest values
+  return loadCfg();
 }
