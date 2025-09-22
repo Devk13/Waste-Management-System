@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, insert, text
+from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -77,42 +77,35 @@ async def _insert_asset_row(
     blob: bytes,
 ) -> None:
     """
-    Insert one asset row and always provide an explicit primary key.
-    Handles schemas that use either `bytes` or `data` as the blob column.
+    Insert into skip_assets and set `id` explicitly.
+    Handles schema variants: content_type/mime and data/bytes.
     """
     tbl = SkipAsset.__table__  # type: ignore[attr-defined]
-    cols = tbl.c.keys()
+    cols = tbl.c
 
-    # pick blob + mime columns used by your schema
-    blob_col = "bytes" if "bytes" in cols else ("data" if "data" in cols else None)
-    if blob_col is None:
-        raise RuntimeError("skip_assets table has neither 'bytes' nor 'data' column")
-    ct_col = "content_type" if "content_type" in cols else ("mime" if "mime" in cols else None)
+    values: dict[str, object] = {}
 
-    # Build explicit SQL so we can set id no matter what the ORM mapping exposes
-    col_list = ["id", "skip_id", "kind"]
-    if "idx" in cols:
-        col_list.append("idx")
-    if ct_col:
-        col_list.append(ct_col)
-    col_list.append(blob_col)
+    if "id" in cols.keys():
+        values["id"] = str(uuid.uuid4())
 
-    placeholders = [":" + c for c in col_list]
-    sql = text(
-        f"INSERT INTO {tbl.name} ({', '.join(col_list)}) "
-        f"VALUES ({', '.join(placeholders)})"
-    )
+    values["skip_id"] = str(skip_id)
+    values["kind"] = kind
+    if "idx" in cols.keys():
+        values["idx"] = idx
 
-    params = {
-        "id": str(uuid.uuid4()),
-        "skip_id": str(skip_id),
-        "kind": str(kind),
-        "idx": idx,
-        (ct_col or "content_type"): content_type,
-        blob_col: blob,
-    }
+    if "content_type" in cols.keys():
+        values["content_type"] = content_type
+    elif "mime" in cols.keys():
+        values["mime"] = content_type
 
-    await session.execute(sql, params)
+    if "data" in cols.keys():
+        values["data"] = blob
+    elif "bytes" in cols.keys():
+        values["bytes"] = blob
+    else:
+        raise RuntimeError("skip_assets table has neither 'data' nor 'bytes' column")
+
+    await session.execute(insert(tbl).values(**values))
 
 # Auth helpers
 def _admin_key_expected() -> Optional[str]:
@@ -139,6 +132,10 @@ def _admin_key_ok_q(
         return
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
+def _asset_blob_and_ct(a):
+    blob = getattr(a, "data", None) or getattr(a, "bytes", None)
+    ct = getattr(a, "content_type", None) or getattr(a, "mime", "application/octet-stream")
+    return blob, ct
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -158,10 +155,8 @@ def _to_int(v) -> Optional[int]:
     except Exception:
         return None
 
-
 async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str) -> None:
-    """Create PNG+PDF assets if they don't exist yet."""
-    # Any labels PDF already?
+    """Create PNG+PDF assets if they don't exist yet (idempotent)."""
     existing_pdf = (
         await session.execute(
             select(SkipAsset).where(
@@ -178,26 +173,27 @@ async def _ensure_label_assets(session: AsyncSession, skip: Skip, org_name: str)
     meta = LabelMeta(qr_text=deeplink, qr_code=skip.qr_code, org_name=org_name)
     pdf_bytes = make_three_up_pdf(meta, png_bytes)
 
+    # 3 PNGs
     for i in range(1, 4):
-        session.add(
-            SkipAsset(
-                skip_id=str(skip.id),
-                kind=SkipAssetKind.label_png,
-                idx=i,
-                content_type="image/png",
-                data=png_bytes,
-            )
+        await _insert_asset_row(
+            session,
+            skip_id=str(skip.id),
+            kind=SkipAssetKind.label_png,
+            idx=i,
+            content_type="image/png",
+            blob=png_bytes,
         )
 
-    session.add(
-        SkipAsset(
-            skip_id=str(skip.id),
-            kind=SkipAssetKind.labels_pdf,
-            idx=None,
-            content_type="application/pdf",
-            data=pdf_bytes,
-        )
+    # 1 PDF
+    await _insert_asset_row(
+        session,
+        skip_id=str(skip.id),
+        kind=SkipAssetKind.labels_pdf,
+        idx=None,
+        content_type="application/pdf",
+        blob=pdf_bytes,
     )
+
     await session.flush()
 
 async def _insert_asset_row(
@@ -429,7 +425,7 @@ async def create_skip(
 async def get_skip_labels_pdf(
     skip_id: str,
     session: AsyncSession = Depends(get_db),
-    _: None = Depends(_admin_key_ok_q),
+    _: None = Depends(_admin_key_ok_q),  # header OR ?key=
 ):
     asset = (
         await session.execute(
@@ -442,44 +438,16 @@ async def get_skip_labels_pdf(
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Labels PDF not found")
 
-    return StreamingResponse(iter([asset.data]), media_type=asset.content_type)
-
-
-# ---------- label fetchers ----------
-
-@router.get("/{skip_id}/labels.pdf")
-async def get_skip_labels_pdf(
-    skip_id: str,                              # <- accept string
-    session: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),
-):
-    if getattr(user, "role", None) != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin only")
-
-    asset = (
-        await session.execute(
-            select(SkipAsset).where(
-                SkipAsset.skip_id == str(skip_id),
-                SkipAsset.kind == SkipAssetKind.labels_pdf,
-            )
-        )
-    ).scalars().first()
-    if not asset:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Labels PDF not found")
-
-    return StreamingResponse(iter([asset.data if hasattr(asset, "data") else asset.bytes]),
-                             media_type=asset.content_type)
+    blob, ct = _asset_blob_and_ct(asset)
+    return StreamingResponse(iter([blob]), media_type=ct)
 
 @router.get("/{skip_id}/labels/{idx}.png")
 async def get_skip_label_png(
-    skip_id: str,                              # <- accept string
+    skip_id: str,
     idx: int,
     session: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),
+    _: None = Depends(_admin_key_ok_q),  # header OR ?key=
 ):
-    if getattr(user, "role", None) != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Admin only")
-
     asset = (
         await session.execute(
             select(SkipAsset).where(
@@ -488,9 +456,9 @@ async def get_skip_label_png(
                 SkipAsset.idx == idx,
             )
         )
-    ).scalars().first()
+    ).scalar_one_or_none()
     if not asset:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Label PNG not found")
 
-    return StreamingResponse(iter([asset.data if hasattr(asset, "data") else asset.bytes]),
-                             media_type=asset.content_type)
+    blob, ct = _asset_blob_and_ct(asset)
+    return StreamingResponse(iter([blob]), media_type=ct)
