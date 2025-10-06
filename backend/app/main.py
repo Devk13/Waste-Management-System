@@ -144,7 +144,7 @@ async def _startup() -> None:
             from app.models.labels import Base as LabelsBase
             from app.models.driver import Base as DriverBase
             try:
-                from app.models.models import Base as CoreBase
+                from app.models.base import Base as CoreBase
             except Exception:
                 CoreBase = None  # type: ignore
             try:

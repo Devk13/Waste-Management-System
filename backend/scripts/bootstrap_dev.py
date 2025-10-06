@@ -9,7 +9,7 @@ from app.models.skip import Base as SkipBase
 from app.models.labels import Base as LabelsBase
 from app.models.driver import Base as DriverBase
 try:
-    from app.models.models import Base as CoreBase  # movements/weights/transfers/wtns
+    from app.models.base import Base as CoreBase  # movements/weights/transfers/wtns
 except Exception:
     CoreBase = None  # type: ignore
 
