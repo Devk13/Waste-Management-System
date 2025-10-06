@@ -1,7 +1,9 @@
 # Python
 backend/.venv/
-**/__pycache__/
+__pycache__/
 *.pyc
+*.py[cod]
+.pytest_cache/
 backend/.env
 backend/dev.db
 backend/node_modules/
@@ -42,6 +44,9 @@ backend/**/*.db
 # Node build artifacts
 frontend/node_modules/
 frontend/dist/
+node_modules/
+dist/
+build/
 
 # OS/editor
 .DS_Store
